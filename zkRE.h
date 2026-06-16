@@ -17,7 +17,7 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 #define RE_MAX_TAG	20	// max number of tags: 10 is minimum: "\9"
 			// don't just jack this up, big array in zkRE.c
 
-	// regExpRun flags:
+	// regExpMatch flags:
 #define RE_SOL		 1	// text is the start of the line/text
 #define RE_SEARCH	 2	// move as needed to match
 
