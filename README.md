@@ -12,7 +12,7 @@ Limitations: NO support for non-ASCII text, results can differ from recursive en
 Example:
 ```
 // clang eg.c zkRE.c
-// clang will compile tail call VM, gcc & MSVC can't so get a big switch
+// clang will compile tail call VM, gcc & MSVC won't so they get a big switch
 
 #include <stdio.h>
 #include <string.h>
