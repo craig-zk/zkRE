@@ -38,7 +38,7 @@ static void doRE(char *re, char *text){
 int main(int argc, char* argv[]){
    doRE("(ab|a)bc","abc");              // --> match \1 == "a"
    doRE("(dog|cat)\\1","catcat");       // match
-   doRE("(a.c){1,2}","abcadcaec"); // match, \\1 == adc
+   doRE("(a.c){1,2}","abcadcaec"); // match, \1 == adc
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
         "aaaaaaaaaaaaaaaaaaa"); // match
 
