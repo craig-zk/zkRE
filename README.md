@@ -18,14 +18,14 @@ Example:
 #include <string.h>
 #include "zkRE.h"
 
-static void doRE(char *re, char *text){
+static void doRE(char *re, char *text, int flags){
    char *tags[2 * RE_MAX_TAG], *ptr;
    Byte  dfa[2000];
    int   n,s;
 
    n = sizeof(dfa);
    if( (ptr = regExpCompile(re,dfa,&n)) ){ printf("%s\n",ptr); return; }
-   if(regExpMatch(dfa,text,0x0,tags,0)){
+   if(regExpMatch(dfa,text,flags,tags,0)){
       printf("Match: %s  %s",re,text);
       if(tags[1]){
          strcpy((char *)dfa,tags[1]);
@@ -36,12 +36,12 @@ static void doRE(char *re, char *text){
    }
 }
 int main(int argc, char* argv[]){
-   doRE("(ab|a)bc","abc");          // --> match, \1 == "a"
-   doRE("(dog|cat)\\1","catcat");   // match
-   doRE("(a.c){1,2}","abcadcaec");  // match, \1 == "adc"
+   doRE("(ab|a)bc","abc",0x0);          // --> match, \1 == "a"
+   doRE("(dog|cat)\\1","catcat",0x0);   // match
+   doRE("(a.c){1,2}","abcadcaec",0x0);  // match, \1 == "adc"
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
-        "aaaaaaaaaaaaaaaaaaa"); // match
-
+        "aaaaaaaaaaaaaaaaaaa",0x0);     // match
+   doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1-->"testing"
    return 0;
 }
 ```
