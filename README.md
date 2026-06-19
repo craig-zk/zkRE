@@ -20,7 +20,7 @@ Example:
 #include "zkRE.h"
 
 static void doRE(char *re, char *text, int flags){
-   char *tags[2 * RE_MAX_TAG], *ptr;
+   char *tags[2 * RE_MAX_TAG], *ptr;   // tags is optional
    Byte  dfa[2000];
    int   n,s;
 
