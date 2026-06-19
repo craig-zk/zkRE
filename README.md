@@ -1,7 +1,8 @@
 # zkRE
 Regular expression engine with ERE syntax for ASCII text.
 
-Syntax: ERE (extended regular expressions): `{}[]()^$.|*+?\  \s\S  \w\W  \<\>  \n  (?:)`<br/>
+Syntax: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \n  (?:)`<br/>
+d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing<br/>
 Documented at top of zkRE.c
 
 A non-recursive back tracking regular expression engine.
