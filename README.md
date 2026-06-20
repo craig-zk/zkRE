@@ -9,7 +9,7 @@ A non-recursive back tracking regular expression engine.
 
 Two C files: zkRE.[ch], thread safe, public domain
 
-Limitations: NO support for non-ASCII text, results can differ from recursive engines (eg PCRE), some group closures not supported (eg (a+b)+c, (a|b)+)
+Limitations: NO support for non-ASCII text, results can differ from recursive engines (eg PCRE), some group closures not supported (eg (a+b)+c, (a|b)+), the width of the match tree is limited: viewing a match as a breadth first search, the number of nodes/level is limited (".*a" match "1234a67890" is width 11. The VM applies agressive pruning to control growth).
 
 Example:
 ```
