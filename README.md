@@ -9,7 +9,7 @@ A non-recursive back tracking regular expression engine.
 
 Two C files: zkRE.[ch], thread safe, public domain
 
-Limitations: NO support for non-ASCII text, results can differ from recursive engines (eg PCRE), some group closures not supported (eg (a+c)+, (a|b)+)
+Limitations: NO support for non-ASCII text, results can differ from recursive engines (eg PCRE), some group closures not supported (eg (a+b)+c, (a|b)+)
 
 Example:
 ```
@@ -39,9 +39,10 @@ static void doRE(char *re, char *text, int flags){
    }
 }
 int main(int argc, char* argv[]){
-   doRE("(ab|a)bc","abc",0x0);          // --> match, \1 == "a"  (25 byte DFA)
+   doRE("(ab|a)bc","abc",0x0);          // --> match, \1 == "a"  (21 byte DFA)
    doRE("(dog|cat)\\1","catcat",0x0);   // match        (25 byte DFA)
    doRE("(a.c){1,2}","abcadcaec",0x0);  // match, \1 == "adc"  (17 byte DFA)
+   doRE("(ab*c)+","abbbcacab",0x0);  // match, \1 == "ac"  (20 byte DFA)
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
         "aaaaaaaaaaaaaaaaaaa",0x0);     // match  (102 byte DFA)
    doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1-->"testing"
