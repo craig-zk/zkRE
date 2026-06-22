@@ -19,8 +19,10 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 			// don't just jack this up, big array in zkRE.c
 
 	// regExpMatch flags:
-#define RE_SOL		 1	// text is the start of the line/text
 #define RE_SEARCH	 2	// move as needed to match
+#define RE_MID		 1	// text points to the middle of bigger text
+			// ^ has no match in this text
+			// If RE_MID, text[-1] MUST be at valid!
 
 	// RegExp error codes
 #define RE_ERROR_BAD_DFA	 1	// DFA null or bad/corrupt (eg open ref)
