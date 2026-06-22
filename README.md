@@ -9,9 +9,18 @@ A non-recursive back tracking regular expression engine.
 
 Two C files: zkRE.[ch], thread safe, public domain
 
-Limitations: NO support for non-ASCII text, results can differ from recursive engines (eg PCRE), some group closures not supported (eg (a+b)+c, (a|b)+), the width of the match tree is limited: viewing a match as a breadth first search, the number of nodes/level is limited (".*a" match "1234a67890" is width 11. The VM applies agressive pruning to control growth).
+__Limitations__:
+- NO support for non-ASCII text
+- Results can differ from recursive engines (eg PCRE)
+- Some group closures not supported (eg (a+b)+c, (a|b)+),
+- The width of the match tree is limited: viewing a
+match as a breadth first search, the number of nodes/level is limited
+(`".*a"` match "1234a67890" is width 11, `".*(a|b)"` doubles the width. The
+compiler tweaks and the VM prunes to control growth, not always
+successfully).
 
-Example:
+
+Examples:
 ```
 // clang eg.c zkRE.c
 // clang will compile tail call VM, gcc & MSVC won't so they get a big switch
@@ -31,21 +40,31 @@ static void doRE(char *re, char *text, int flags){
    if(regExpMatch(dfa,text,flags,tags,0)){
       printf("Match: %s  %s",re,text);
       if(tags[1]){
-         strcpy((char *)dfa,tags[1]);
-         dfa[tags[RE_MAX_TAG + 1] - tags[1]] = '\0';
+         n = tags[RE_MAX_TAG + 1] - tags[1];
+         strncpy((char *)dfa,tags[1],n);
+         dfa[n] = '\0';
          printf("\t\\1 == %s",dfa);
       }
       printf("\n");
    }
 }
 int main(int argc, char* argv[]){
-   doRE("(ab|a)bc","abc",0x0);          // --> match, \1 == "a"  (21 byte DFA)
-   doRE("(dog|cat)\\1","catcat",0x0);   // match        (25 byte DFA)
-   doRE("(a.c){1,2}","abcadcaec",0x0);  // match, \1 == "adc"  (17 byte DFA)
-   doRE("(ab*c)+","abbbcacab",0x0);  // match, \1 == "ac"  (20 byte DFA)
+   doRE("(ab|a)bc","abc",0x0);          // match \1 == "a"    (21 byte DFA)
+   doRE("(dog|cat)\\1","catcat",0x0);   // match              (25 byte DFA)
+   doRE("(a.c){1,2}","abcadcaec",0x0);  // match \1 == "adc"  (17 byte DFA)
+   doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"   (20 byte DFA)
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
-        "aaaaaaaaaaaaaaaaaaa",0x0);     // match  (102 byte DFA)
+        "aaaaaaaaaaaaaaaaaaa",0x0);     // match               (102 byte DFA)
    doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1-->"testing"
    return 0;
 }
+```
+```
+zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')
+zkl: var d=File("VM/zkRE.c").read()	// has (650) 253-0001. in last line
+Data(103,515)
+zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
+0.073033
+zkl: r.matched
+L(L(103379,14),"(650) ","253-0001")
 ```
