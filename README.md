@@ -12,7 +12,7 @@ Two __C files__: zkRE.[ch], thread safe, public domain
 __Limitations__:
 - NO support for non-ASCII text
 - Results can differ from recursive engines (eg PCRE)
-- Some group closures not supported (eg (a+b)+c, (a|b)+),
+- Some group closures not supported, eg (a+b)+c, (a|b)+
 - The width of the match tree is limited: viewing a
 match as a breadth first search, the number of nodes/level is limited
 (`".*a"` match "1234a67890" is width 11, `".*(a|b)"` doubles the width. The
