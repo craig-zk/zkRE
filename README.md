@@ -1,13 +1,13 @@
 # zkRE
 Regular expression engine with ERE syntax for ASCII text.
 
-Syntax: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \n  (?:)`<br/>
+__Syntax__: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \n  (?:)`<br/>
 d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing<br/>
 Documented at top of zkRE.c
 
 A non-recursive back tracking regular expression engine.
 
-Two C files: zkRE.[ch], thread safe, public domain
+Two __C files__: zkRE.[ch], thread safe, public domain
 
 __Limitations__:
 - NO support for non-ASCII text
@@ -19,8 +19,11 @@ match as a breadth first search, the number of nodes/level is limited
 compiler tweaks and the VM prunes to control growth, not always
 successfully).
 
+__Tests__: 752 manually written tests, 221 are Henry Spencer's regular
+expression tests (10 of which were modified).
 
-Examples:
+
+__Examples__:
 ```
 // clang eg.c zkRE.c
 // clang will compile tail call VM, gcc & MSVC won't so they get a big switch
@@ -60,11 +63,21 @@ int main(int argc, char* argv[]){
 }
 ```
 ```
-zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')
-zkl: var d=File("VM/zkRE.c").read()	// has (650) 253-0001. in last line
+zkl: var d=File("VM/zkRE.c").read()   // has (65O) 253-0001. in last line
 Data(103,515)
+zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-0.073033
+0.057324
 zkl: r.matched
-L(L(103379,14),"(650) ","253-0001")
+L(L(103379,14),"(65O) ","253-0001")    // 65"O" is zero, don't match here
+
+zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')
+zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
+0.011371  // short circuits by noting that ABC..XYZ is not contained in text
+         // ie strstr() and fail 2,786 times, up to this comment
+
+zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZaaa$')  // aaa is AAA
+zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
+2e-05   // strstr(ABC...XYZAAA) ONCE and fail
+  // Meta fail: this comment is in search text, aaa/AAA to avoid false match
 ```
