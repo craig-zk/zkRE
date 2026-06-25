@@ -11,13 +11,18 @@ Two __C files__: zkRE.[ch], thread safe, public domain
 
 __Limitations__:
 - NO support for non-ASCII text
-- Results can differ from recursive engines (eg PCRE)
+- Group values can differ from recursive engines (eg PCRE) or POSIX RE
+    * Results can differ: eg "(a|ab)(bc|c)" match "abcabc" 
+      --> \1=="a", \2=="bc" not \1=="ab", \2=="c"
+    * Count and index can differ
+      eg "a(b)|c(d)|a(e)f" match"aef" --> \1=="e", not \1==\2=="", \3=="e"
+
 - Some group closures not supported, eg (a+b)+c, (a|b)+
 - The width of the match tree is limited: viewing a
 match as a breadth first search, the number of nodes/level is limited
 (`".*a"` match "1234a67890" is width 11, `".*(a|b)"` doubles the width. The
 compiler tweaks and the VM prunes to control growth, not always
-successfully).
+successfully.
 
 __Tests__: 752 manually written tests, 221 are Henry Spencer's regular
 expression tests (10 of which were modified).
@@ -63,8 +68,10 @@ int main(int argc, char* argv[]){
 }
 ```
 ```
+// The following is also text in zkRE.c
 zkl: var d=File("VM/zkRE.c").read()   // has (65O) 253-0001. in last line
 Data(103,515)
+
 zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 0.057324
@@ -74,7 +81,7 @@ L(L(103379,14),"(65O) ","253-0001")    // 65"O" is zero, don't match here
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 0.011371  // short circuits by noting that ABC..XYZ is not contained in text
-         // ie strstr() and fail 2,786 times, up to this comment
+         // ie strstr() and fail 2,786 times, up to this comment @ line 2,786
 
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZaaa$')  // aaa is AAA
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
