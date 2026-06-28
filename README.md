@@ -24,7 +24,7 @@ match as a breadth first search, the number of nodes/level is limited
 compiler tweaks and the VM prunes to control growth, not always
 successfully.
 
-__Tests__: 752 manually written tests, 221 are Henry Spencer's regular
+__Tests__: 750+ hand written tests, 221 are Henry Spencer's regular
 expression tests (10 of which were modified).
 
 
