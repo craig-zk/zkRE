@@ -5,6 +5,8 @@
    #define DEBUGCODE(code)
 #endif
 
+// Formated for mono spaced font and tabs (==8)
+
 #if 0
 *****************************************
 Synopsis: Regular expression engine with ERE syntax for ASCII text.
@@ -340,7 +342,7 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if HOME_BREW_CTYPE_H	// your versions of isalnum, isdigit, isspace
+#if HOME_BREW_CTYPE_H	// your versions of isalnum, isdigit, isspace, isword
    #include "char.h"	// kinda silly to hardwire the name
 #else
    #include <ctype.h>	// most of us
@@ -395,8 +397,7 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 /* **************************** Bit Tables **************************** */
 /* ******************************************************************** */
 
-/* 
- * Bit table:  a string of bits stored in an array of char
+/* Bit table:  a string of bits stored in an array of char
  *     .-----------------------------------.
  *     |01234567|89012345|67890123|45678901|
  *     `-----------------------------------'
@@ -422,15 +423,15 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
  *   This is based on two's complement math.
  */
 
-/* The following defines are for character set size. 128 for straight ASCII,
- *   256 for Euro ASCII (8 bit characters).
- */
+    /* The following defines are for character set size. 128 for straight
+     *   ASCII, 256 for Euro ASCII (8 bit characters).
+     */
 #define MAXCHR	 256		//  128 or  256
 #define BLKIND	0xf8		// 0x78 or 0xf8
 
-/* The following defines are not meant to be changeable.
- * They are for readability only.
- */
+    /* The following defines are not meant to be changeable.
+     * They are for readability only.
+     */
 #define CHRBIT	8
 #define BITBLK	MAXCHR/CHRBIT		// 16 or 32 bytes
 #define BITIND	0x7
@@ -448,7 +449,7 @@ static void chset(Byte *bitTable, Byte c){ CHSET(bitTable,c); }
 
 static Byte *dfaScanForward(Byte *dfa, int stopAt, int inThisNode);
 
-#if HOME_BREW_CTYPE_H	// isalnum, isdigit, isspace
+#if HOME_BREW_CTYPE_H	// isalnum, isdigit, isspace, isword
    #define IS_WORD(c)	isword(c)	// not in <ctype.h>
 #else
    static Byte wordTable[BITBLK]; 	// bit table for word definition
@@ -477,7 +478,7 @@ typedef struct{
    Byte *orAddr, *botAddr;
 }Tag;
 
-static UChar *storeCHR(Byte *mp, char, Str *, Byte *sp, Byte **lp);
+static UChar *storeCHR(Byte *mp, char, Str *, Byte **lp);
 static Byte *chr2str(
    UChar *lp, UChar *mp, Str *str, int movePrev,
    int tagi, Tag *tagstk);
@@ -518,19 +519,18 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	// id for OR tree node, unique id for every group
    unsigned nodeId = 0, orCnt = 0;
 
-   if(*dfaSz < (30 + RE_SLOP))
+   if(*dfaSz < (20 + RE_SLOP))
       BADPAT(dfa,"regExpCompile: dfa too small to hold anything meaningful");
 
+   *sp = 0xff;		// invalid op
    str.sz = str.maxSz = 0;
 
    #if !HOME_BREW_CTYPE_H
 	// Build a bit table definition of a word. Done once.
-        // Not thread safe so I call during VM construction
-	// Not thread safe
+        // Not thread safe: if matters, call regExpCompile(".") very early
    if(!wordTableDefined){
       wordTableDefined = 1;
-      for(n = 0; n <= 0xff; n++)
-         if(IS_ALPHA(n)) CHSET(wordTable,n);
+      for(n = 0; n <= 0xff; n++) if(IS_ALPHA(n)) CHSET(wordTable,n);
    }
    #endif //HOME_BREW_CTYPE_H
 
@@ -549,12 +549,12 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    break;
 	 case '$':			// match end of line: "..$", "..$|.."
 	    STORE(EOL);
-	    tagstk[tagi].forks = 1;		// if we are actually in a tag
+	    tagstk[tagi].forks = 1;	// ($)* == infinite loop
 	    break;
-	 case '[':				// match a set of characters
+	 case '[':			// match a set of characters
 	    if(p[2]==']' && p[1]!='^'){
 	       // [.] --> CHR . Russ says people do that
-	       mp = storeCHR(mp,p[1],&str,sp,&lp);
+	       mp = storeCHR(mp,p[1],&str,&lp);
 	       p += 2;
 	       break;
 	    }
@@ -592,9 +592,9 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 		// store table and clear for next use
 	    for(n = 0; n < BITBLK; bittab[n++] = '\0') STORE(bittab[n]);
 	    break;
-	 case '*': z = CLO;  goto clo;	// match 0 or more of preceding RE
-	 case '+': z = CLOP; goto clo;	// match 1 or more.  Note: x+ == xx*
-	 case '?': z = ONE;		// match none or one
+	 case '?': z = ONE;  goto clo;	// match none or one
+	 case '+': z = CLOP; goto clo;	// match 1 or more
+	 case '*': z = CLO;		// match 0 or more of preceding RE
 	 clo:
 	 {
 	    int pacman, hz;
@@ -607,7 +607,7 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    if(*sp==CLO || *sp==CLOP || *sp==ONE) // just no
 	    	BADPAT(dfa,"regExpCompile: ** not allowed");
 
-	 #if 0	//#ifdef ONE
+	 #if 0
 	    if(*sp == ONE) break;	// equivalence: x?? == x
 	 #endif
 	    switch(*sp){	// some redundancy here for CYA
@@ -650,10 +650,10 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	       STORE(z); mp = sp; STORE(END);
 	    }
 	    tagstk[tagi].forks  = !pacman;	// if we are actually in a tag
-	    tagstk[tagi].vwidth = 1;
+	    tagstk[tagi].vwidth = 1;		// (tag) is varible width
 
-	    // lp --> CLO|CLOP|ONE CHR a END
-	       // pack strings? "ab*" --> CHR a CHR b --> CHR a CLO CHR b END
+	    // lp ?--> CLO|CLOP|ONE CHR a END
+	    // pack strings? "ab*" --> CHR a CHR b --> CHR a CLO CHR b END
 	    if(n){	// multi op op messes with check at end of switch
 	       str.sz--;	// "123456+" --> STR(12345) CLOP 6
 	       lp = chr2str(lp,mp, &str, 1, tagi,tagstk); // --> CLO|CLOP|ONE
@@ -679,20 +679,19 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    if(regExpMatch(mndfa,(char*)p,0,tags,0)){
 	       // {,} z==0, {m,} z==1, {,n} z==2, {m,n} z==3, {n} z==4
 	       char **eopat = &tags[RE_MAX_TAG]; // atoi stops at [^0-9]
-	       if(tags[1]!=eopat[1])     { M = atoi(tags[1]); z=1;  }
-	       if(!tags[2])		 { N = M;	      z=4;  } //{n}
-	       else if(tags[2]!=eopat[2]){ N = atoi(tags[2]); z|=2; }
-	       if(!z){ mp = storeCHR(mp,'{',&str,sp, &lp); break; } // {,}
+	       if(tags[1]!=eopat[1])     { M = atoi(tags[1]); z = 1; }
+	       if(!tags[2])		 { N = M;	      z = 4; } // {n}
+	       else if(tags[2]!=eopat[2]){ N = atoi(tags[2]); z|= 2; }
+	       if(!z){ mp = storeCHR(mp,'{',&str,&lp); break;    } // {,}
 
 	       switch(*sp){	// some redundancy here for CYA
-		  default: BADPAT(dfa,"regExpCompile: Invalid closure");
+		  default: BADPAT(dfa,"regExpCompile: Invalid {} closure");
 		  case CHR:   case ANY:     case SET:   case NSET: 
 		  case DIGIT: case N_DIGIT: case SPACE: case N_SPACE:
 		  case ALPHA: case N_ALPHA: case EOT:
 		     break;
 	       }
 
-	       if(p == pat) BADPAT(dfa,"regExpCompile: Empty closure");
 	       p      = (UChar *)eopat[0] - 1;	// '}'
 	       pacman = packRat(sp,p);	// gonna fork or just consume?
 
@@ -701,7 +700,7 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 		  tagstk[tagi].vwidth = 1;	 // a{2,3} 
 	       }else pacman = 0;	// {n}: fixed width match
 	    }else{
-	       mp = storeCHR(mp,'{',&str,sp,&lp);   // context matters
+	       mp = storeCHR(mp,'{',&str,&lp);   // context matters
 	       break;			     // not CLOMN, just text
 	    }
 	    if(M>0xff || N>0xff || (M>N && N))
@@ -802,7 +801,7 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    ortagc = 0;
 	    break;
 	 case '|':
-	    // a|b|c|d == [a-d]
+	    // todo: a|b|c|d == [a-d]
 	    if(p==pat || !p[1]) BADPAT(dfa,"regExpCompile: Empty |");
 	    switch(*sp){		// previous opcode
 	       case BOL: case BOT: case BOW: case AORB:	// ^|, (|, \<|, ||
@@ -863,16 +862,17 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	       case 'D': STORE(N_DIGIT); break;
 	    #ifdef EXTEND
 	       case 'b': STORE(CHR); STORE('\b'); break;
+	       case 'e': STORE(CHR); STORE('\e'); break;
 	       case 'f': STORE(CHR); STORE('\f'); break;
 	       case 'n': STORE(CHR); STORE('\n'); break;
 	       case 'r': STORE(CHR); STORE('\r'); break;
 	       case 't': STORE(CHR); STORE('\t'); break;
 	    #endif
-	       default: mp = storeCHR(mp,*p,&str,sp,&lp); break;
+	       default: mp = storeCHR(mp,*p,&str,&lp); break;
 	    } // switch
 	    break;
 	 default:
-	    mp = storeCHR(mp,*p,&str,sp,&lp);   // an ordinary character
+	    mp = storeCHR(mp,*p,&str,&lp);   // an ordinary character
 	    break;
       }// switch
 
@@ -894,7 +894,7 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    }
       }// CHR to STR
 
-      sp = lp;		// start of previous state
+      sp = lp;		// start of previous state/op
 
       if(mp > endDFA) BADPAT(dfa,"regExpCompile: Expression too long)");
    }// for
@@ -967,7 +967,7 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 }
 
     // store one CHR that may convert to STRing
-static UChar *storeCHR(Byte *mp, char c, Str *str, Byte *sp, Byte **lp){
+static UChar *storeCHR(Byte *mp, char c, Str *str, Byte **lp){
    #if 0	// just don't like this
    // .*a CLO ANY END --> DOTSTAR CHR a
    if(*sp==CLO && 	// .+ --> ..*
@@ -1006,12 +1006,11 @@ static UChar *storeCHR(Byte *mp, char c, Str *str, Byte *sp, Byte **lp){
     * Str buffer can hold 255 characters, code upstairs handles overflow so
     *   I don't have to worry about that here.
     */
-   /* Doing a post process with dfaScanForward and CHR counting would
-    * be simpler (much less convoluted) but I'd also have to "garbage"
-    * collect in the [unlikely] case I ran into the end of allocated DFA
-    * space.  Here, converting on the fly, I still have the same issue, but
-    * it is much closer to the limit, so I'm pretending not to
-    * care.
+   /* Doing a post process with dfaScanForward and CHR counting would be
+    * simpler (much less convoluted) but I'd also have to "garbage" collect
+    * in the [unlikely] case I ran into the end of allocated DFA space.
+    * Here, converting on the fly, I still have the same issue, but it is
+    * much closer to the limit, so I'm pretending not to care.
     */
 static Byte *chr2str(
    UChar *lp, UChar *mp, Str *str, int moveOp,
@@ -1081,12 +1080,11 @@ static Byte *chr2str(
     *   a*b  (a*)b  need lookahead for a*[b]  a*\d
     *   \d*a  \s*a  \w*1
     *   [a]*b  [^a]*a  need lookahead for a*[b]
-    *   (ab{3 }c)
+    *   (ab{3,}c)
     *   (...|a*)b  need lookahead for (a*|..)b
-    *   I just don't use (a.b)+c
     * No: a*a  (a*)*  a*\a  a*.  a*[a]  a**  a*?a  a*{2}a  a*(a)  (a*|b)a
     *     .*a  (ab)*ab
-    *   (a*b)*b  (a*b)*c  ((ab)+c)+: too much like (ab)*ab
+    *   (a*b)*b  (a*b)*c  ((ab)+c)+  (a.b)+c: too much like (ab)*ab
     * Punted on several ...$
     * 
     * Really want lookahead: if(*sp==CHR && lookahead()==CHR && CHR!=a)
@@ -1117,7 +1115,6 @@ int packRat(Byte *sp, UChar *p){
 	       case N_SPACE: pacman = (isspace(b) != 0); break;
 	       case SET:     pacman = (ISINSET(sp + 1,b) == 0); break; // [a]+b
 	       case NSET:    pacman = (ISINSET(sp + 1,b) != 0); break; // [^a]+b
-   //	       case BOT:     pacman = (pmatch(m,c,sp,?,?,&stator) != 0); break;  // (a.b)+c
 	    }
 	 }
       }
@@ -1154,7 +1151,7 @@ typedef struct{
    UChar   *are;	// used by CLO/CLOP/ONE/CLOMN --> fork()
    char   **bopat;	// point to the "master" copy (which includes eopat)
    char    *errorMsg;
-}MotherShip;		// 7,464 bytes 64 bit pointers
+}MotherShip;		// 7,464 bytes 64 bit pointers & 20 Fibers
 
 static UChar *pmatch(MotherShip *,UChar *lp, Byte *dfa, 
 		     char *bopat[], char *eopat[], Stator *);
@@ -1362,8 +1359,7 @@ static UChar *_regExpFail(
 *            Cooperative threads for "back tracking"			   *
 ***************************************************************************/
 
-static void initMotherShip(MotherShip *m, UChar *bol, char *bopat[])
-{
+static void initMotherShip(MotherShip *m, UChar *bol, char *bopat[]){
    Fiber *f;
    int    n;
 
@@ -1427,7 +1423,7 @@ static int forkk(
     *   and makes (?:a?)^na^n eg n==3 "a?a?a?aaa" fast ie no longer O(2^n)
     * However, as Russ notes, this messes with Refs as (..)*.*\1 forks a
     *    bunch at the same place with different values for \1.
-    *    There are cases of same: dfa, lp & tags so can still ignore those.
+    *    There are cases of same dfa, lp & tags so can still ignore those.
     * Hint taken from:
     *   Russ Cox: "Regular Expression Matching: the Virtual Machine Approach"
     *   https://swtch.com/~rsc/regexp/regexp2.html
@@ -1521,7 +1517,7 @@ static void fiberDead(MotherShip *m, Fiber *f){
      *       -MotherShip can change while a Fiber is being run.
      *       -pmatch() adds/delete Fibers (deletes indirectly via recursive
      *	      calls to pullThread()). ie the Fibers list changes
-     *	      during pmatch(). f->next can change, there is no [valid] prev.
+     *	      during pmatch(). f->next, f->prev can change.
      *   A match (op END) might not end the match, as it may not be the most
      *     greedy / longest (arg!, extra work).
      * A call to pmatch() is a likely recursion event:
@@ -1729,7 +1725,7 @@ static UChar *doNode(
      * closure, capturing tags as needed.
      * 
      * (a.c)*d --> CLO BOT 10 BOT 1 CHR a ANY CHR c EOT 1 END END CHR D
-     *			  dfa ^				      efa ^
+     *			  dfa ^                               efa ^
      * Returns: 
      *   1: You should jump to next op, lp has been updated
      *   0: You are done, branches are forked, fail.
@@ -2320,7 +2316,7 @@ OP_SIG(op_EDON){ JMP_NEXT_OP(); }    // flowed off the end of last OR
      *      after op_fork() is done.
      * Always fail, even if fork() finds the match as that match is a
      *   different Fiber, *we* didn't match.
-     * It would be nice if to just carry one for one of the branches,
+     * It would be nice if to just carry on for one of the branches,
      *   avoiding a fork, ie forking all the eagar-er branches and
      *   continuing the greediest match but that fails if there is a GC as
      *   then the already forked branches now have higher priorty than the
@@ -2390,10 +2386,10 @@ OP_SIG(op_CLO){ // both CLO:[5] (*: none or more) & CLOP:[6] (+: one or more)
    // Here it would be nice to know if there are STRs in the "main" path
    // so I could fail early. Then again, HOLDs should have checked that.
 
-   // PACMAN will hopefully catch x*y so I don't have to fork and fail a
-   // zillion times vs just continuing at "y" (as there are no other choices).
+   // PACMAN means a*b doesn't fork and fail a zillion times vs just
+   // continuing at "b" (as there are no other choices).
 
-   if(pacman) JMP_NEXT_OP();	// x*y, we have consumed all "x"s
+   if(pacman) JMP_NEXT_OP();	// a*b, we have consumed all "a"s
    ms->are = are; GOTO_OP(op_fork);
 }
     /* []: {m,n} CLOMN m n ANY|CHR| ... ...
