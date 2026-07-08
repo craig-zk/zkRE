@@ -26,7 +26,8 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 
 	// RegExp error codes
 #define RE_ERROR_BAD_DFA	 1	// DFA null or bad/corrupt (eg open ref)
-#define RE_ERROR_DEAD_LOCK	 2	// Not enough resources
+#define RE_ERROR_DEAD_LOCK	 2	// Not enough threads
+#define RE_ERROR_EOM		 3	// Not enough memory
 	
    // info on *why* regExpMatch() failed
 typedef struct{ int errorCode; char *errorMsg; } ReErrorPacket;
