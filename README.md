@@ -1,5 +1,5 @@
 # zkRE
-Regular expression engine with ERE syntax for ASCII text.
+Regular expression engine with ERE syntax for ASCII text.</br>
 
 __Syntax__: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \n  (?:)`<br/>
 d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing<br/>
@@ -11,20 +11,21 @@ Two __C files__: zkRE.[ch], thread safe, public domain
 
 __Limitations__:
 - NO support for non-ASCII text
+- Some group closures not supported, eg (a+)+, (.\*b)+, (a*|b)+
 - Group values can differ from recursive engines (eg PCRE) or POSIX RE
     * Results can differ: eg "(a|ab)(bc|c)" match "abcabc" 
       --> \1=="a", \2=="bc" not \1=="ab", \2=="c"
     * Count and index can differ
       eg "a(b)|c(d)|a(e)f" match"aef" --> \1=="e", not \1==\2=="", \3=="e"
-
-- Some group closures not supported, eg (a+b)+c, (a|b)+
+- Alternation is longest match wins:
+    (ab|abc) and (ab|abc)+ match "abc" --> "abc" vs "ab" PCRE
 - The width of the match tree is limited: viewing a
 match as a breadth first search, the number of nodes/level is limited
 (`".*a"` match "1234a67890" is width 11, `".*(a|b)"` doubles the width. The
 compiler tweaks and the VM prunes to control growth, not always
 successfully.
 
-__Tests__: 750+ hand written tests, 221 are Henry Spencer's regular
+__Tests__: 850+ hand written tests, 221 are Henry Spencer's regular
 expression tests (10 of which were modified).
 
 
@@ -32,7 +33,7 @@ __Examples__:
 ```
 // clang eg.c zkRE.c
 // clang will compile tail call VM, gcc & MSVC won't so they get a big switch
-
+// No speed differences
 #include <stdio.h>
 #include <string.h>
 #include "zkRE.h"
@@ -45,7 +46,7 @@ static void doRE(char *re, char *text, int flags){
    n = sizeof(dfa);
    if( (ptr = regExpCompile(re,dfa,&n)) ){ printf("%s\n",ptr); return; }
    printf("%s --> %d byte DFA\n",re,n);
-   if(regExpMatch(dfa,text,flags,tags,0)){
+   if(regExpMatch(dfa,text,tags,flags,0)){
       printf("Match: %s  %s",re,text);
       if(tags[1]){
          n = tags[RE_MAX_TAG + 1] - tags[1];
