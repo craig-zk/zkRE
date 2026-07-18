@@ -33,8 +33,8 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 typedef struct{ int errorCode; char *errorMsg; } ReErrorPacket;
 
 char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz);
-int   regExpMatch(Byte *dfa, char *textToSearch,
-                unsigned int flags, char *tags[], ReErrorPacket *);
+int   regExpMatch(Byte *dfa, char *textToSearch, char *tags[],
+                unsigned int flags, ReErrorPacket *);
 int   regExpSubs(char *src, char *dst, char *tags[]);
 void  dfaDump(Byte *dfa, int showSz);
 
