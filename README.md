@@ -1,7 +1,7 @@
 # zkRE
 Regular expression engine with ERE syntax for ASCII text.</br>
 
-__Syntax__: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \n  (?:)`<br/>
+__Syntax__: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \0 .. \9  (?:)`<br/>
 d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing<br/>
 Documented at top of zkRE.c
 
@@ -31,9 +31,10 @@ expression tests (10 of which were modified).
 
 __Examples__:
 ```
-// clang eg.c zkRE.c
+// clang egRE.c zkRE.c
 // clang will compile tail call VM, gcc & MSVC won't so they get a big switch
 // No speed differences
+
 #include <stdio.h>
 #include <string.h>
 #include "zkRE.h"
