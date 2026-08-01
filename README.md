@@ -2,7 +2,7 @@
 Regular expression engine with ERE syntax for ASCII text.</br>
 
 __Syntax__: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \0 .. \9  (?:)`<br/>
-d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing<br/>
+    &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing<br/>
 Documented at top of zkRE.c
 
 A non-recursive back tracking regular expression engine.
@@ -11,7 +11,7 @@ Two __C files__: zkRE.[ch], thread safe, public domain
 
 __Limitations__:
 - NO support for non-ASCII text
-- Some group closures not supported, eg (a+)+, (.\*b)+, (a*|b)+
+- Some group closures not supported, eg (a+)+a, (.+b)+, (a+|b)+
 - Group values can differ from recursive engines (eg PCRE) or POSIX RE
     * Results can differ: eg "(a|ab)(bc|c)" match "abcabc" 
       --> \1=="a", \2=="bc" not \1=="ab", \2=="c"
@@ -20,12 +20,12 @@ __Limitations__:
 - Alternation is longest match wins:
     (ab|abc) and (ab|abc)+ match "abc" --> "abc" vs "ab" PCRE
 - The width of the match tree is limited: viewing a
-match as a breadth first search, the number of nodes/level is limited
-(`".*a"` match "1234a67890" is width 11, `".*(a|b)"` doubles the width. The
+match as a breadth first search, the number of nodes/level is limited:
+`".*a"` match "1234a67890" is width 11, `".*(a|b)"` doubles the width. The
 compiler tweaks and the VM prunes to control growth, not always
 successfully.
 
-__Tests__: 850+ hand written tests, 221 are Henry Spencer's regular
+__Tests__: 1,000+ hand written tests, 221 are Henry Spencer's regular
 expression tests (10 of which were modified).
 
 
@@ -59,31 +59,32 @@ static void doRE(char *re, char *text, int flags){
    }
 }
 int main(int argc, char* argv[]){
-   doRE("(ab|a)bc","abc",0x0);          // match \1 == "a"    (21 byte DFA)
-   doRE("(dog|cat)\\1","catcat",0x0);   // match              (25 byte DFA)
-   doRE("(a.c){1,2}","abcadcaec",0x0);  // match \1 == "adc"  (17 byte DFA)
-   doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"   (20 byte DFA)
+   doRE("(ab|a)bc","abc",0x0);          // match \1 == "a"   (25 byte DFA)
+   doRE("(dog|cat)\\1","catcat",0x0);   // match             (30 byte DFA)
+   doRE("(a.c){1,2}","abcadcaec",0x0);  // match \1 == "adc" (22 byte DFA)
+   doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"  (24 byte DFA)
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
-        "aaaaaaaaaaaaaaaaaaa",0x0);     // match               (102 byte DFA)
-   doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1-->"testing"
+        "aaaaaaaaaaaaaaaaaaa",0x0);     // match             (102 byte DFA)
+   doRE("(aa|a)+","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",0); // match
+   doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1 == "testing"
    return 0;
 }
 ```
 ```
 // The following is also text in zkRE.c
 zkl: var d=File("VM/zkRE.c").read()   // has (65O) 253-0001. in last line
-Data(103,515)
+Data(135,326)
 
 zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-0.057324
+0.003635
 zkl: r.matched
-L(L(103379,14),"(65O) ","253-0001")    // 65"O" is zero, don't match here
+L(L(135190,14),"(65O) ","253-OOO1")    // 65"O" is zero, don't match here
 
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-0.011371  // short circuits by noting that ABC..XYZ is not contained in text
-         // ie strstr() and fail 2,786 times, up to this comment @ line 2,786
+0.016997  // short circuits by noting that ABC..XYZ is not contained in text
+      // ie strstr() and fail 2,786 times, up to this comment @ character 2,786
 
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZaaa$')  // aaa is AAA
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
