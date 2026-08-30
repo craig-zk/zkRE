@@ -7,11 +7,13 @@ Documented at top of zkRE.c
 
 A non-recursive back tracking regular expression engine.
 
-Two __C files__: zkRE.[ch], thread safe, public domain
+Two __C files__: zkRE.[ch], no memory allocation, thread safe, public domain
 
 __Limitations__:
-- NO support for non-ASCII text
-- Some group closures not supported, eg (a+)+a, (.+b)+, (a+|b)+
+- NO support for non-ASCII (8 bit) text
+- Some group closures not supported, eg (a+)+a, (.+a)+b, (a+|(b|c))+</br>
+   To close a group, the group must have an "unambiguous" stopping point and
+   no nested alternations.
 - Group values can differ from recursive engines (eg PCRE) or POSIX RE
     * Results can differ: eg "(a|ab)(bc|c)" match "abcabc" 
       --> \1=="a", \2=="bc" not \1=="ab", \2=="c"
@@ -25,7 +27,7 @@ match as a breadth first search, the number of nodes/level is limited:
 compiler tweaks and the VM prunes to control growth, not always
 successfully.
 
-__Tests__: 1,000+ hand written tests, 221 are Henry Spencer's regular
+__Tests__: 1,100+ hand written tests, 221 are Henry Spencer's regular
 expression tests (10 of which were modified).
 
 
