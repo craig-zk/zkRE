@@ -29,14 +29,15 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 #define RE_ERROR_DEAD_LOCK	 2	// Not enough threads
 #define RE_ERROR_EOM		 3	// Not enough memory
 	
-   // info on *why* regExpMatch() failed
-typedef struct{ int errorCode; char *errorMsg; } ReErrorPacket;
+	// Info on *why* regExpMatch()/regExpCompile() failed. Optional.
+typedef struct{ int errorCode, n; char *errorMsg, txt[100]; }ReErrorInfo;
 
-char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz);
+char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz, ReErrorInfo *);
 int   regExpMatch(Byte *dfa, char *textToSearch, char *tags[],
-                unsigned int flags, ReErrorPacket *);
+                unsigned int flags, ReErrorInfo *);
 int   regExpSubs(char *src, char *dst, char *tags[]);
 void  dfaDump(Byte *dfa, int showSz);
+int   dfaSz(Byte *dfa);
 
 /* tags:  char *tags[2 * RE_MAX_TAG] or 0, these are the "(" ptrs into text
  *   If tags[0..RE_MAX_TAG - 1] != 0 then

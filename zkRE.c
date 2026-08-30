@@ -1,4 +1,4 @@
-#if 0   // 1 to enable debug messages tracking DFA progress
+#if 0	// 1 to enable debug messages tracking DFA progress
    #define DFA_DEBUG 1
    #define DEBUGCODE(code) code;
 #else
@@ -7,21 +7,23 @@
 
 // Formated for mono spaced font and [hard] tabs (==8)
 
-/* Date stamp: 2026-08-01
+/* Date stamp: 2026-09-01
 *****************************************
 Synopsis: Regular expression engine with ERE syntax for ASCII text.
 
 Syntax: {}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \0 .. \9  (?:)
-    d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing
+    d (digit), s (space), w (word), <> (begin/end word), (?:) non-capturing
 See below for details.
 
 A non-recursive back tracking regular expression engine.
 
-Two C files: zkRE.[ch], thread safe, public domain
+Two C files: zkRE.[ch], no memory allocation, thread safe, public domain
 
 Limitations:
  - NO support for non-ASCII text
- - Some group closures not supported, eg (a*)*, (.*b)*, (a*|b)+
+ - Some group closures not supported, eg (a+)+a, (.+a)+b, (a+|(b|c))+
+   To close a group, the group must have an "unambiguous" stopping point and
+   no nested alternations.
  - Group values can differ from recursive engines (eg PCRE) or POSIX RE
     * Results can differ: eg "(a|ab)(bc|c)" match "abcabc" 
       --> \1=="a", \2=="bc" not \1=="ab", \2=="c"
@@ -30,15 +32,16 @@ Limitations:
  - Alternation is longest match wins:
     (ab|abc) and (ab|abc)+ match "abc" --> "abc" vs "ab" PCRE
  - The width of the match tree is limited: viewing a match as a breadth
-   first search, the number of nodes/level is limited (".*a" match
+   first search, the number of nodes/level is limited: ".*a" match
    "1234a67890" is width 11, ".*(a|b)" doubles the width. The compiler
    tweaks and the VM prunes to control growth, not always successfully.
---> O(n^2). If searching: O(n^3) (n ~ text length)
--Time (worst case: .*): I *think* match time is O(n^2) and search time is 
- O(n^3) (where m ~ dfa.len(), n ~ text.len())
-good ones are O(m*n)
+ - I *think* worst case search time is polynomial (in search text
+   length) with some big powers: "(.*) (.*) (.*) (.*) (.*)" should be a
+   lot worse than quadratic. But it is not: matching seems linear,
+   searching seems to be quadratic (worst case is no match).
+   The better engines are (O(m*n) m==[dn]fa.len, n==search text len).
 
-Tests: 1000+ hand written tests, 221 are Henry Spencer's regular
+Tests: 1,100+ hand written tests, 221 are Henry Spencer's regular
 expression tests (10 of which were modified).
 
 Examples:
@@ -56,12 +59,12 @@ static void doRE(char *re, char *text, int flags){
    int   n,s;
 
    n = sizeof(dfa);
-   if( (ptr = regExpCompile(re,dfa,&n)) ){ printf("%s\n",ptr); return; }
+   if( (ptr = regExpCompile(re,dfa,&n,0)) ){ printf("%s\n",ptr); return; }
    printf("%s --> %d byte DFA\n",re,n);
    if(regExpMatch(dfa,text,tags,flags,0)){
       printf("Match: %s  %s",re,text);
       if(tags[1]){
-	 n = tags[RE_MAX_TAG + 1] - tags[1];
+         n = tags[RE_MAX_TAG + 1] - tags[1];
          strncpy((char *)dfa,tags[1],n);
          dfa[n] = '\0';
          printf("\t\\1 == %s",dfa);
@@ -76,25 +79,49 @@ int main(int argc, char* argv[]){
    doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"  (24 byte DFA)
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
         "aaaaaaaaaaaaaaaaaaa",0x0);     // match             (102 byte DFA)
-   doRE("(aa|a)+","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",0); // match
    doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1 == "testing"
    return 0;
 }
 ---------------------------------------
-// The following is also text in zkRE.c
+// More examples:
+
+zkl: var r=RegExp(0''^(aa|a)+')		# 23 byte DFA
+zkl: t:=Time.Clock.runTime; r.search("a"*100_000); Time.Clock.runTime-t
+0.029371
+zkl: r.matched
+L(L(0,100000),"aa")
+
+zkl: var r=RegExp(0''^(?:a+)+b')	// (?:a+)+a won't compile, ambiguous
+zkl: t:=Time.Clock.runTime; r.search("a"*100_000 + "b"); Time.Clock.runTime-t
+0.001033
+zkl: r.matched
+L(L(0,100001))
+
+zkl: var r=RegExp(0''(?:.*) (?:.*) (?:.*) (?:.*) (?:.*)')	# 18 byte DFA
+#zkl:var txt = ("a"*5000) + " b c d e"
+zkl: var txt = ["a".."e"].apply('*(1_000)).concat(" ")  # "aaa bbb ccc ddd eee"
+zkl: t:=Time.Clock.runTime; r.search(txt); Time.Clock.runTime-t
+1.6e-05		# Linux anyway, it has memrchr(). Otherwise 0.002603 sec
+zkl: r.matched
+L(L(0,5004))
+zkl: t:=Time.Clock.runTime; r.search("a"*5000); Time.Clock.runTime-t
+7.5e-05	  # no match, actually searching --> 0.002971 sec: quadratic time
+
+//////////
+
 zkl: var d=File("VM/zkRE.c").read()   // has (65O) 253-0001. in last line
 Data(135,326)
 
-zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')
+zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')	# 61 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 0.003635
 zkl: r.matched
 L(L(135190,14),"(65O) ","253-OOO1")    // 65"O" is zero, don't match here
 
-zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')
+zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')	# 69 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 0.016997 // short circuits by noting that ABC...XYZ is not contained in text
-        // ie strstr() and fail 2,786 times, up to this comment @ line 2,786
+     // ie strstr() and fail 2,786 times, up to this comment @ character 2,786
 
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZaaa$')  // aaa is AAA
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
@@ -106,17 +133,19 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 
 /* zkRE.c - Regular expression pattern matching and searching
  *
- * UTF-8:  No.  Eight bit safe but multibyte characters are going to cause
- *   problems, as in works but wrong results.
+ * UTF-8: No. Eight bit safe but multibyte characters in the DFA are going
+ * to cause problems, as in works but wrong results, such as in sets, single
+ * character closures. Searching UTF-8 should see no issues.
  * 
  * By:  Ozan S. Yigit (oz), Dept. of Computer Science, York University
  * Mods, oh so many mods (such as "|", CLOP, STR and HOLDS, tail call engine,
- *   {}, "back tracking" for "|?*+", fibers).
+ *   {}, "back tracking" for "|?*+{}", fibers).
  * C Durland craigd@zenkinetic.com
  *
  * These routines are the PUBLIC DOMAIN equivalents of regex routines as
  * found in 4.nBSD UN*X, with minor extensions.
- * Since moved towards Extended Regular Syntax (ERE) and PCRE behavior.
+ * Since moved towards Extended Regular Syntax (ERE) and PCRE behavior, with
+ * *no* plans for complete compatibility.
  * 
  * These routines are derived from various implementations found in software
  * tools books, and Conroy's grep.  They are NOT derived from
@@ -135,7 +164,7 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
  *	I like to use a big buffer and post allocate.
  *  regExpMatch: Run the DFA to match a pattern.
  *	int regExpMatch(Byte *dfa, char *textToMatch
- *	unsigned int flags, char *tags[], ReErrorPacket *ep);
+ *	unsigned int flags, char *tags[], ReErrorInfo *ep);
  *  dfaDump: Print the DFA.
  *  See the actual routines for what the paramaters are and zkRE.h for flags.
 
@@ -189,7 +218,7 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
  *			  but more work could to be done.
  *                      Back tracks. See [18].
  *
- *   [6]  +		Same as [5], except it matches one or more.
+ *   [6]  +		One or more, otherwise same as [5]
  *                      Greedy: the longest match is given preference.
  *                      Back tracks. See [18].
  *
@@ -268,7 +297,7 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
  *	  This behavior is designed to mimic "traditional" RE behavior
  *	  (recursive decent engines) with the least amount of
  *	  effort/recursion.
- *	  It is NOT Posix behavior.
+ *	  It is NOT Posix behavior and can conflict with PCRE.
  *
  * Acknowledgements:
  *   HCR's Hugh Redelmeier has been most helpful in various stages of
@@ -383,7 +412,7 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 #define N_ALPHA	17	// \W: match !\w
 #define CLO	18	// *: closure: none or more :: CLO  dfa END
 #define ONE	19	// ?: none or one	    :: ONE  dfa END
-#define CLOP	20	// +:  one or more	    :: CLOP dfa END
+#define CLOP	20	// +: one or more	    :: CLOP dfa END
 #define CLOMN	21	// a{m,n}		    :: CLOMN M N dfa END
 #define AORB	22	// A|B, (A|B) :: AORB <open tags> <hops to sibling OR>
 #define NODE	23	// Begin node: a node is a group with OR, tree vertex
@@ -397,6 +426,25 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 #define LAST_OP  29	// so I can do sanity checks
 
 #define PREFIX	0xf0	// Fake op: Eagar .*: PREFIX 3 abc\0 or PREFIX 1 '\0\0'
+#define STAKE	0xf1	// Fake op used during compile
+
+
+    // CLO flags for (a)*
+#define CLO_PACMAN	0x01	// unambiguous stopping point: a*b (vs a*a)
+#define CLO_VWIDTH	0x02	// variable width: (a*b)* or NODE forks
+#define CLO_TAGS	0x04	// contains noncosmetic tags: (a)* vs (?:a)*
+#define CLO_LONG	0x08	// size is two bytes
+
+    // Skip values for CLO XXX to skip past the closure
+#define ANYSKIP		2 		// CLO ANY|DIGIT|..    END
+#define CHRSKIP		3		// CLO CHR chr	       END
+#define SETSKIP		(2 + BITBLK)	// CLO SET 16/32bytes  END
+
+   // constants for op sizes
+#define ORSZ		 3 		// AORB tags moreor
+#define BOTSZ		 2 		// BOT/EOT n
+#define CLOHEADERSZ	 4 		// CLO/CLOP BOT sz flags
+#define CLOMNHEADERSZ	 6 		// CLOMN M N BOT sz flags
 
 
    /* Notes on HOLDS: An attempt to fail fast if text doesn't hold a string.
@@ -405,9 +453,9 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
     * searching: move==1.
     */
 #define DO_HOLDS   1
-#define ANDTHENULL 1	// gotta be 1 for Windows as they don't have memmem(3)
+#define ANDTHENULL 1 // 0|1: gotta be 1 for Windows as they don't have memmem(3)
 
-#if __clang__ || __GNUC__	// !!!??? how to know if memrchr defined?
+#if __clang__ || __GNUC__
   #define DO_DOTSTAR   1	// !!!??? how to know if memrchr defined?
 #else
   #define DO_DOTSTAR   0	// Windows does not have memrchr(3)
@@ -416,6 +464,7 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 #define IS_ALPHA(c)	(isalnum(c) || c == '_')     // upper/lower + digits
 
 #define PAYLOAD		0	// experimental
+
 
 /* ******************************************************************** */
 /* **************************** Bit Tables **************************** */
@@ -448,15 +497,13 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
  */
 
     /* The following defines are for character set size. 128 for straight
-     *   ASCII, 256 for Euro ASCII (ISO/IEC 8859-1/Latin-1 8 bit
-     *   characters).
+     * ASCII, 256 for Euro ASCII (ISO/IEC 8859-1/Latin-1 8 bit characters).
      */
 #define MAXCHR	 256		//  128 or  256
 #define BLKIND	0xf8		// 0x78 or 0xf8
 
-    /* The following defines are not meant to be changeable.
-     * They are for readability only.
-     */
+    // The following defines are not meant to be changeable.
+    // They are for readability only.
 #define CHRBIT	8
 #define BITBLK	MAXCHR/CHRBIT		// 16 or 32 bytes
 #define BITIND	0x7
@@ -466,13 +513,16 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
      *   When calling these routines, make sure c is an unsigned char (or
      *     int) so if it has the high bit set, casting it to an int won't
      *     make it a large negative number.
+     *   If c >= MAXCHR, bad things probably happen. And nobody checks.
+     * It would be nice to add a guard for the 7 bit case: ((c)&0x80==0) && ...
+     *    Then I could use it in for 8 bits. If space was an issue
      */
 #define ISINSET(bittab,c) ((bittab)[((c) & BLKIND)>>3] & (1<<((c) & BITIND)))
 #define CHSET(  bittab,c)  (bittab)[((c) & BLKIND)>>3] |= 1<<((c) & BITIND)
 
 static void chset(Byte bitTable[BITBLK], Byte c){ CHSET(bitTable,c); }
 
-Byte *dfaScanForward(Byte *dfa, int stopAt, int inThisNode);
+static Byte *dfaScanForward(Byte *dfa, int stopAt, int inThisNode, Byte **);
 
 #if HOME_BREW_CTYPE_H	// isalnum, isdigit, isspace, isword
    #define IS_WORD(c)	isword(c)	// not in <ctype.h>
@@ -489,27 +539,59 @@ Byte *dfaScanForward(Byte *dfa, int stopAt, int inThisNode);
 
 
   /////////////////////////////////////////////////////////////////////////
- //////////////////// Compile expression to DFA //////////////////////////
+ //////////////////// Compile Expression to DFA //////////////////////////
 /////////////////////////////////////////////////////////////////////////
 
 #define RE_SLOP	50		// dfa overflow protection
 
-#define BADPAT(dfa,msg)	return (dfa[1] = END, (char *)msg)
 #define STORE(x)	(*mp++ = x)  // RE_SLOP guards against overflow
  
-      // info for (), | and STR
+      // info for and about (), |
 typedef struct{ int sz, maxSz; Byte *mp; char string[270]; } Str;
 typedef struct{ 
-   int   tagc,    nodeId, orCnt, hasOR, cosmetic, has, forks, vwidth;
+   int   tagc,    nodeId, orCnt, hasOR, cosmetic, hast, forks, vwidth;
    Byte *orAddr, *botAddr;
 }Tag;
 
-static UChar *storeCHR(char, Byte *mp, Str *, Byte **lp, Byte *sp);
-static Byte *chr2str(
-   UChar *lp, UChar *mp, Str *str, int movePrev,
-   int tagi, Tag *tagstk);
-static int packRat(UChar *p, Byte *, Tag *tp, Byte, Byte *mp, Byte *b);
-static Byte *hooverPrefix(Byte *dfa, Byte *mp);
+typedef struct{
+   UChar *p0;
+   Byte  *dfa, *endDFA, *mp, *digitSet, *tagLog, *stake, *sp;
+   int    tagi, tagc, ortagc, topor;
+   Str   *str;
+   Tag   *tagstk;
+   unsigned nodeId, orCnt;
+   ReErrorInfo *epac;
+}CompileState;		// since I'm not "properly" recursive
+
+#define _BADPAT(dfa,msg)	return (dfa[1] = END, msg)
+#define  BADPAT(dfa,msg)	return badpat(msg,p,cscape)
+static char *badpat(char *msg, UChar *p, CompileState *cs){
+   if(cs->epac){ // if I have a buffer, return the offset of the error
+      ReErrorInfo *ep = cs->epac;
+      int	     n, i;
+      char	    *txt = ep->txt;
+
+      n = cs->epac->n = p - cs->p0; 
+      if(!n) *txt = '0';	// txt was zero'd
+      // very low budget itoa, sprintf: "%d : %s".fmt(n,msg)
+      for(i = 0; n; n /= 10, i++) txt[i] = (n % 10) + '0';	// n==0 -->""
+      for(n = 0, i--; n < i; n++, i--)	// reverse digits
+         { char d = txt[i]; txt[i] = txt[n]; txt[n] = d; }
+      strcat(strcat(txt," : "),msg);
+      cs->epac->errorMsg = txt;
+      _BADPAT(cs->dfa,ep->txt);
+   }
+   _BADPAT(cs->dfa,msg);
+}
+
+static UChar *storeCHR(char, Byte *mp, Str *);
+static char  *compile(UChar *p, CompileState *, int justLooking);
+static int    packRat(UChar *p, Byte *, Tag *tp, Byte *b, CompileState *, char **error);
+static Byte  *hooverPrefix(Byte *dfa, Byte *mp);
+static Byte  *chr2str(
+	   UChar *lp, Byte *mp, Str *, int movePrev, int tagi, Tag *tagstk);
+
+#define COSMO_TAGS	(RE_MAX_TAG*5)	// (?:a): not a run time resource
 
     /* Compile RE to internal format & store in dfa[]
      * Input:
@@ -517,48 +599,42 @@ static Byte *hooverPrefix(Byte *dfa, Byte *mp);
      *   dfa:   Pointer to dfa[*dfaSz] where DFA will be stored
      *   dfaSz: Pointer to size of buffer allocated for DFA.
      *          Returns size actually used. You can allocate & copy dfa.
+     *   ReErrorInfo: Filled in if match failed badly. Can == 0.
+     *          Cleared in any event.
      * Returns:
      *   NULL:  RE compiled OK.
      *   	Pointer to error message. *DON'T* use the resulting DFA!
-     *   	!!! would be nice to know if dfa overflow
-///!!!! epac with index of where error occurred
+     *   	  Well, you can, I check..
+     *   	If ReErrorInfo, the error message has the column of the
+     *   	  offending character prepended, which is also in ->n.
      *   dfaSz: Modified to size of actual DFA
      */
-char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
-      // tagstk holds which tag is open & 
+char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz, ReErrorInfo *epac){
+      // tagstk holds which tag is open (see tagLog) & 
       // the previous & current siblings of the OR tree
-   #define COSMO_TAGS	(RE_MAX_TAG*5)
-   Tag tagstk[COSMO_TAGS] = { 0 }; // subpat tag & OR tree stack
-
-   UChar *pat = (UChar *)pattern, *p; // pattern pointers
+   Tag   tagstk[COSMO_TAGS] = { 0 }; // subpat tag & OR tree stack
+   char *s;	// error msg
    Byte
-     *mp = dfa + 1,	// dfa pointer for STORE
-     *sp = dfa + 1,	// another one
-     *lp,		// saved pointer
-     *endDFA = dfa + *dfaSz - RE_SLOP,	// space available w/overflow checking
-      b,
-      bittab[BITBLK]     = { 0 },	// bit table for SET
-      digits[BITBLK]     = { 0 },	// [0-9]
-      tagLog[RE_MAX_TAG] = { 0 };	// log of which tags hold data
-   int
-      tagi   = 0,	// tag stack index
-      tagc   = 1,	// actual tag count, cosmetic (?:) tags don't count
-      ortagc = 0,	// keep tag count in sync with ORs
-      topor  = 0,	// top level OR, ie outside of any group
-      n,z    = 0;
-   Tag *tp;
-   Str  str;
-	// id for OR tree node, unique id for every group
-   unsigned nodeId = 0, orCnt = 0;
+        *mp = dfa,		// dfa pointer for STORE
+         digits[BITBLK]     = { 0 }, // [0-9] so can [0-9] --> DIGIT
+         tagLog[RE_MAX_TAG] = { 0 }; // log of which tags hold data, are open
+   int	 n, topor;		// top level OR, ie outside of any group
+   Str   str;			// buffer for chr to string compression
+   CompileState  cscape = { 0 };
+
+   cscape.epac = epac;
+   if(epac) memset(epac,0,sizeof(ReErrorInfo));
 
    if(*dfaSz < (20 + RE_SLOP))
-      BADPAT(dfa,"regExpCompile: dfa too small to hold anything meaningful");
-   DEBUGCODE( memset(dfa,0,*dfaSz); )
+      _BADPAT(dfa,"regExpCompile: dfa array too small to hold anything meaningful");
+   DEBUGCODE( memset(dfa,0,*dfaSz); )	// makes my life easier
+memset(dfa,42,*dfaSz);
 
-   *sp = 0xff;		// invalid op
+   STORE(0);			// DFA flags
+   *mp = END;			// "initialize"
    str.sz = str.maxSz = 0;
 
-   for(n = '0'; n <= '9'; n++) CHSET(digits,n);
+   for(n = '0'; n <= '9'; n++) CHSET(digits,n);	// [0-9] --> DIGIT
 
    #if !HOME_BREW_CTYPE_H
 	// Build a bit table definition of a word. Done once.
@@ -570,30 +646,186 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
    }
    #endif //HOME_BREW_CTYPE_H
 
-   if(pat == 0 || *pat == '\0')
-      BADPAT(dfa,"regExpCompile: \"\" is a bad regular expression");
+   cscape.p0	   = (UChar *)pattern;
+   cscape.dfa	   = dfa;
+   cscape.mp	   = cscape.sp = mp;
+   cscape.endDFA   = dfa + *dfaSz - RE_SLOP;  // space available w/overflow checking
+   cscape.str	   = &str;
+   cscape.tagstk   = tagstk; cscape.tagLog = tagLog; cscape.tagc = 1;
+   cscape.digitSet = digits;
+   // other fields have been initialized to zero
+   
+   if(pattern == 0 || *pattern == '\0')
+      _BADPAT(dfa,"regExpCompile: \"\" is a bad regular expression");
 
-   *dfa = 0;	// DFA flags
+   if( (s = compile((UChar *)pattern,&cscape,0)) ) return s;
 
-   for(p = pat; *p; p++){
+   if(cscape.tagi > 0) _BADPAT(dfa,"regExpCompile: Unmatched (");
+
+   topor = cscape.topor;	// will be used in post
+   mp	 = cscape.mp;		// ""
+
+   /*  a|b|c  --> (?:a|b|c)
+    * ^a|b|c  --> (?:^a|b|c), ^ is not global
+    *  a|b|c$ --> (?:a|b|c$), $ ""
+    */
+   if(topor){	// top level OR, wrap DFA in Node
+      memmove(dfa + 1, dfa, (mp - dfa));	// move an extra byte, RE_SLOP
+      *(dfa + 1) = NODE;
+      mp++;
+      STORE(EDON);
+   }
+
+   STORE(END);
+
+   /////////////////////////////// post process DFA
+
+   /* Ponder:
+    * -Expand PREFIX: (abc|def) --> FAX 2 ABC\0DEF\0
+    * -Convert a*abc to a*bc, the PACMAN applies
+    * -Common prefix: (dog|dogs) --> dogs?, a(bc\d) --> abc
+    * -Group holds: (cat|dog) --> HOLDS1OF(cat,dog)
+    *   ??Search for any of: find any of ("cat","dog")
+    *   ?Only not common combos ie don't sit in memchr/fork loop with lots
+    *     of noops
+    *   There are algorithms for multi string search such as "teddy",
+    *     Aho-Corasick, Commentz-Walter
+    *   Rust RE, ripgrep have good write ups.
+    * -Common suffix???: (a|ba|cba) --> (|b|cb)a   and do what? holds?
+    * -Disjoint sets: (abc|xyz) --> jmpTable(a:A, x:X) (A:bc|X:yz)
+    *   Good for: don't need to fork
+    *   Or compiler tells OR one op can decide which branch to continue
+    *   Differerent from PACMAN, PACMAN can have multiple wins
+    * -If RE ends with $, consider starting at end and repeat: back up, match
+    * -If reverse(dfa) exists:
+    *   -If RE has STR in middle and RE_SEARCH, strstr to that and match
+    *   left and right. This can be dicy.
+    *   Or if line oriented, back to start of line
+    * - Line oriented RE_SEARCH: use STR to find a line, back up to start of
+    *    line, match. No match --> repeat
+    */
+
+   mp = hooverPrefix(dfa,mp);	// for RE_SEARCH at runtime
+
+   #if DO_HOLDS	// Are there any long strings that have to be in any match?
+   	/* STR at start of DFA == HOLDS
+	 * HOLDS hops-to-STR	2 bytes
+	 * We are adding to the DFA, we have [at least] most of RE_SLOP so
+	 *   at 2 bytes, we have room for RE_SLOP/2 (== 25) HOLDS.
+	 * If the DFA starts with PREFIX, we'll add HOLDS after it.
+	 * 
+	 * RE_SEARCH: PREFIX somewhat midigates the needs for HOLDS as we
+	 *   should be starting close to a match.
+	 * STR at, or close to, the start of the DFA is a better gate keeper
+	 *   than HOLDS.
+	 * No PREFIX means use any string as RE_SEARCH would have to single
+	 *   step. Note that DOTSTAR is not a CLO.
+	     ???PACMAN CLOs are cheap.
+	 * If PREFIX: a STR after a closure is a good candidate for HOLDS.
+	 * !!!If the DFA starts with BOL (^), don't bother with HOLDS???
+	     !!!??? what about ^.*hoho? I suspose DOTSTAR is fine
+	 */
+      #define HOLDS_MAX      4	// the max number of HOLDS I'll use
+      #define HOLDS_MIN_STR 10  // min len of string that worth searching for
+//   if(!topor && str.maxSz >= HOLDS_MIN_STR){ // not one big OR & maybe long STRs
+   if(!topor && dfa[1]!=BOL && str.maxSz >= HOLDS_MIN_STR){ // not one big OR & maybe long STRs
+      Byte *dfa1 = dfa + 1, *dp, 
+           *clo1 = 0, clos[] = { CLO, CLOP, ONE, CLOMN, 0 };
+      int   n, z, hops, sz, minSz = 0;
+      struct{ Byte *str; int sz, hops; } strs[HOLDS_MAX] = { 0 },
+           *smp = strs, *sp;
+
+//    if(*dfa1 == BOL)    dfa1++;	// don't move ^
+      if(*dfa1 == PREFIX){ // action starts after PREFIX
+	 dfa1 += 3 + dfa1[1];
+	 for(clo1 = 0, n = 0; clos[n]; n++)	// find first closure
+	   if( (dp = dfaScanForward(dfa1,clos[n],0,0)) && (clo1==0 || dp < clo1))
+	      clo1 = dp;
+	 // if PREFIX && clo==0 (no closures), no HOLDS
+      }else clo1 = dfa;		// no PREFIX
+
+      if(clo1)
+	  // find the HOLDS_MAX longest STRs outside of Nodes
+	  // skip if DFA starts with STR
+	 for(hops = 0, dp = dfa1; (dp = dfaScanForward(dp,STR,1,0)); ){
+	    sz = dp[1]; 
+	    if(++hops > 0xfd) break;	// 1 byte worth of index
+
+	    if(hops && dp > clo1 && sz >= HOLDS_MIN_STR && sz > minSz){
+	       smp->sz = sz; smp->str = dp; smp->hops = hops;
+	       // find smallest slot
+	       for(minSz = strs[0].sz, z = HOLDS_MAX, sp = smp = strs; 
+		       z--; sp++)
+		  if(sp->sz < minSz){ minSz = sp->sz; smp = sp; }
+	    }
+	    dp += (sz + 2);	// op after STR
+	 }//for
+
+      for(n = 0; n < HOLDS_MAX && strs[n].sz; n++){}	// count strings
+      if(n){      	// insert HOLDS towards start of DFA
+         sz = n<<1;	// space needed for <HOLDS hops>*n
+	 memmove(dfa1 + sz, dfa1, (mp - dfa));
+	 for(z = n, sp = strs, dp = dfa1; z--; sp++, dp += 2)
+	    { dp[0] = HOLDS; dp[1] = sp->hops; }
+	 mp += sz;
+      }
+   }
+   #endif	// DO_HOLDS
+
+   *dfaSz = (mp - dfa);		// in case you want to malloc() the dfa
+   return 0;
+}
+
+    /* Actually convert text to DFA codes.
+     * This is called in two places: 
+     *  - Above: to compile the entire DFA
+     *  - When compiling a closure, I need to look ahead to determine if
+     *    PACMAN applies to closure-in-progress (packRat). I do this in
+     *    place (I shall not allocate) - just continue compiling using
+     *    "safe" assumptions. Which leads to lots of hackery to get enough
+     *    info without moving ops past the point of recovery or generating
+     *    bogus errors. Basically, restrict code movements to areas past
+     *    "real" code (post STAKE).
+     */
+static char *compile(UChar *p, CompileState *cscape, int justLooking){
+   Byte
+     *dfa = cscape->dfa,
+     *mp  = cscape->mp,	// dfa pointer for STORE
+     *sp  = cscape->sp,	// previous op
+     *lp,		// start of current op
+     *tagLog = cscape->tagLog,   // log of which tags hold data, are open
+      bittab[BITBLK] = { 0 };	 // bit table for SET
+   int 
+      tagi   = cscape->tagi,	// tag stack index
+      tagc   = cscape->tagc,	// tag count
+      ortagc = cscape->ortagc,	// keep tag count in sync with ORs
+      n, z, seed = 0, pork = 0, porkPie; // justLooking: when is enough enough?
+   Tag *tp, *tagstk = cscape->tagstk;
+   Str *str = cscape->str;
+	// id for OR tree node, unique id for every group
+   unsigned nodeId = cscape->nodeId, orCnt = cscape->orCnt;
+
+   for(; *p; p++){
       lp = mp;			// start of next dfa state
       switch(*p){
-	 case '.': 
-	    STORE(ANY);
-	    break;		// match any character
+	 case '.': 		// match any character
+	    STORE(ANY); seed = 1;
+	    break;
 	 case '^':		// match beginning of line: "^..", "..|^.."
 	    STORE(BOL); 
 	    tagstk[tagi].forks = 2;	// (^)* == infinite loop
+	    seed = 1;
 	    break;
 	 case '$':			// match end of line: "..$", "..$|.."
 	    STORE(EOL);
 	    tagstk[tagi].forks = 2;	// ($)* == infinite loop
+	    seed = 1;
 	    break;
 	 case '[':			// match a set of characters
 	    //??? [\w-] --> wordTable + '-',etc,  \xHH-\xHH
 	    if(p[2]==']' && p[1]!='^'){		// [^] --> error
 	       // [.] --> CHR . Russ says people do that
-	       mp = storeCHR(p[1],mp,&str,&lp,sp);
+	       mp = storeCHR(p[1],mp,str);
 	       p += 2;
 	       break;
 	    }
@@ -628,49 +860,68 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	       else chset(bittab,*p++);
 	    } // while
 	    if(*p == '\0') BADPAT(dfa,"regExpCompile: Missing ]");
-	    if(ISINSET(bittab,'5') && 0==memcmp(bittab,digits,BITBLK)){
+	    if(ISINSET(bittab,'5') && 0==memcmp(bittab,cscape->digitSet,BITBLK)){
 	       // [0-9], [1234567890] --> DIGIT
 	       mp = lp; STORE(DIGIT);
 	       memset(bittab,0,BITBLK);
 	    }else // store table and clear for next use
 		for(n = 0; n < BITBLK; bittab[n++] = 0) STORE(bittab[n]);
+	    seed = 1;
 	    break;
 	 case '?': z = ONE;  goto clo;	// match none or one
 	 case '+': z = CLOP; goto clo;	// match 1 or more
 	 case '*': z = CLO;		// match 0 or more of preceding RE
 	 clo:
-	 {
-	    int pacman, hz;
+	 {	// TODO?: (x+x+)+y --> xxx*y
+	    Byte b = 0;
+	    int  pacman, hz;
 
-	    if(p == pat) BADPAT(dfa,"regExpCompile: Empty closure");
+	    if(p == cscape->p0) BADPAT(dfa,"regExpCompile: Empty closure");
 	    n = (*sp==CHR);	// remember this for later
 
-		// equivalence: x** == x*, CLO CLO --> CLO
-	  //if(*sp==CLO || *sp==CLOP) break;
-	    if(*sp==CLO || *sp==CLOP || *sp==ONE) // just no
-	    	BADPAT(dfa,"regExpCompile: ** not allowed");
-
-	 #if 0
-	    if(*sp == ONE) break;	// equivalence: x?? == x
-	 #endif
 	    switch(*sp){	// some redundancy here for CYA
 	       default: BADPAT(dfa,"regExpCompile: Invalid closure");
 	       case CHR:   case ANY:     case SET:   case NSET: 
 	       case DIGIT: case N_DIGIT: case SPACE: case N_SPACE:
 	       case ALPHA: case N_ALPHA: case EOT: case EDON:
 	          break;
+	       case CLO: case CLOP: case ONE:
+		  BADPAT(dfa,"regExpCompile: a** not allowed. (?:a*)* is.");
 	    }
 
-	    tp	   = &tagstk[tagi + 1];
-	    pacman = (packRat(p,sp,tp,z,mp,&b) != 0); // force to 0/1
-	    lp	   = sp;		// previous opcode
-
-	    if(z==CLOP && *sp==ANY)  // ".+" --> "..*" as it is a special case
-	       { z = CLO; STORE(ANY); lp++; }
+	    tp = &tagstk[tagi + 1];	// tag we might be in
+	    if(justLooking){	// no more recursion
+	       /* a+b*a: a* does not visit here, not closed. b* does with
+	        *   STAKE at +, past a+ so STAKE won't move.
+	        * (a+)?b --> (a+ --> BOT CHR a STAKE folding this into CLOP
+	        *   would move STAKE, which causes problems. So, don't
+	        *   close, (don't change lp/sp/mp), compile to (a)b which is
+	        *   fine for finding b.
+	        *   (a+)?b  -+-> (a!)b   -?-> (a+)!b
+	        *   (a+)?b+ -+-> (a!)b+  -?-> (a+)!b+  -+-> (a+)?b!
+	        * CLO is not definitive, it is not a "complete" suffix so,
+	        *   in that case, compile the thing after.
+	        * Why not not close anything? Because if b is CLO (*) it is
+	        *   not a prefix whereas CLOP (+) is. a*b*a vs a+b*a
+	        */
+	       if(z==CLO || z==ONE) seed = 0;
+	       if((*sp==EOT || *sp==EDON) && cscape->stake > tp->botAddr) break;
+	       pacman = 0;
+	    }else{	// compile b to determine PACMAN
+	       char *s;
+	       cscape->mp     = mp;   cscape->sp = sp;
+	       cscape->tagi   = tagi;
+	       cscape->tagc   = tagc;
+	       cscape->ortagc = ortagc;
+	       cscape->nodeId = nodeId; cscape->orCnt = orCnt;
+	       pacman = packRat(p,sp,tp,&b,cscape, &s);	// recursion
+	       if(s) return s;
+	    }
 
 	    if(*sp==EOT || *sp==EDON){
-	       // CLO/CLOP/ONE BOT sz flags: 4 bytes.
+	       // CLO/CLOP/ONE BOT flags sz: 4 bytes
 	       // Flags: 1 (PACMAN), 2 (wide), 4 (contains non-cosmetic tags)
+	       //	 8 (2 bytes of size)   see CLO_ flags
 	       // (abc)* --> CLO BOT 11 0       BOT 1     CHR a CHR b CHR c EOT 1 END
 	       // (a*c)* --> CLO BOT 12 1       BOT 1 CLO CHR a END CHR c   EOT 1 END
 	       // (a|b)* --> CLO BOT 14 1  NODE BOT 1 CHR a AORB 1 0 CHR b EOT 1 EDON END
@@ -681,14 +932,15 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	       #if PAYLOAD
 	          if((tp->forks & 2) || (tp->forks && *sp!=EDON))
 	       #else
-	          if(tp->forks)
+	          if(tp->forks && !justLooking)
 	       #endif
-		  BADPAT(dfa,"regExpCompile: ^*, (.*b)*, (a*|b)*: Invalid closure");
+		  BADPAT(dfa,"regExpCompile: Invalid () closure: eg (.*b)*, (a|(b|c))* (nested |)");
 
 	       lp = tp->botAddr;	// lp --> BOT or NODE BOT
 	       /* tp->botAddr/orAddr shift right (by hz) but they will not
 	        * used as chr-->str has happened by this point.
 	        */
+//???  (.)* --> DOTSTAR?
 
 	       sz = mp - lp;	// alt: call dfaScanForward() at runtime, ick
 	       if(sz > 0xfe) BADPAT(dfa,"regExpCompile: (a)*: a too long");
@@ -698,43 +950,46 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	        * dfaScanForward would would miss this as it would not look
 	        * in nested CLOs.
 	        */
-	       if(tp->has)	 flags |= 4;
-	       if(*sp == EDON)   flags |= (tp->forks ? 2 : 0);
-	       else	         flags |= (tp->vwidth && !pacman)<<1;
+	       if(tp->hast)	 flags |= CLO_TAGS;
+	       if(*sp == EDON)   flags |= (tp->forks ? CLO_VWIDTH : 0);
+	       else	         flags |= (tp->vwidth && !pacman)<<1; // VWIDTH
 
 	       hz = 4;
-	       memmove(lp + hz, lp, sz);  // open hole for CLO BOT sz flags
+	       memmove(lp + hz, lp, sz);  // open hole for CLO BOT flags sz
 	       sp = mp + hz; mp = lp; 
-	       STORE(z); STORE(BOT); 
+	       STORE(z); STORE(BOT); STORE(flags);
 	       STORE(sz + 1);	// sz == dfa (being closed) len + 1
-	       STORE(flags);
 	       mp = sp;  STORE(END);
-	    }else{	// a* --> CLO CHR a END
-	       #if DO_DOTSTAR
-	       if(!pacman && b && p[1]!=b && *sp==ANY && z==CLO){
-		  mp--;		// . --> DOTSTAB b
-	          STORE(DOTSTAB); STORE(b);
-	       }else{
-	       #endif
+	    }else{	// sp --> a* <-- mp  --> CLO CHR a END
+	       lp = sp;		// previous opcode
+	       if(z==CLOP && *sp==ANY)  // ".+" --> "..*" : special case
+		  { z = CLO; STORE(ANY); lp++; }
+
+	       //#if DO_DOTSTAR	// argh, Windows.   Remember: .+ --> ..*
+	       if(b && z==CLO){	// packRat special cases ".*b" & ".?b"
+		  mp--;		// mp==sp,  .*b, (.*)b --> ANY STAKE CHR/EOT
+		  if(sp[2]==CHR) STORE(DOTSTAR);	// post packRat code
+		  else{		 STORE(DOTSTAB); STORE(b); }
+	       }else
+	       //#endif
+	       {
 		  hz = 1 + pacman;
 		  memmove(lp + hz, lp, mp - lp);	// open hole for CLO
 		  sp = mp + hz; mp = lp; 
 		  if(pacman) STORE(PACMAN);
 		  STORE(z); mp = sp; STORE(END);
 	       }
-	    #if DO_DOTSTAR
 	    }
-	    #endif
 
 	    tagstk[tagi].forks |= !pacman;	// if we are actually in a tag
-	    tagstk[tagi].vwidth = 1;		// (tag) is varible width
+	    tagstk[tagi].vwidth = 1;		// (tag)* is varible width
 
 	    // lp ?--> CLO|CLOP|ONE CHR a END
 	    // pack strings? "ab*" --> CHR a CHR b --> CHR a CLO CHR b END
 	    if(n){	// multi op op messes with check at end of switch
-	       str.sz--;	// "123456+" --> STR(12345) CLOP 6
-	       lp = chr2str(lp,mp, &str, 1, tagi,tagstk); // --> CLO|CLOP|ONE
-	       mp = str.mp;
+	       str->sz--;	// "123456+" --> STR(12345) CLOP 6
+	       lp = chr2str(lp,mp, str, 1, tagi,tagstk); // --> CLO|CLOP|ONE
+	       mp = str->mp;
 	    }
 	    sp = lp;	// CLO|CLOP|ONE
 	    // leave lp & sp pointing to CLO|CLOP|ONE so can check for **
@@ -743,8 +998,10 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
          }
 	 case '{':	// {M,N}, {N}, {,N}, {M,}  invalid form --> CHR {
 	 {
+	    // {1,1} --> noop. {1,} --> CLOP. Somebody did this
 	    char *tags[2 * RE_MAX_TAG];
 	    int   M = 0, N = 0, pacman = 0, hz;
+	    Byte  _;
 	    Byte  mndfa[] = { // RegExp(0''{(?:(\d+)|(\d*),(\d*))}') eat dogfood
 	      0,CHR,'{',NODE,BOT,1,PACMAN,CLOP,DIGIT,END,EOT,1,  AORB,0,0,
 		 	     BOT,1,PACMAN,CLO, DIGIT,END,EOT,1,  CHR,',',
@@ -760,7 +1017,7 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	       if(tags[1]!=eopat[1])     { M = atoi(tags[1]); z = 1; }
 	       if(!tags[2])		 { N = M;	      z = 4; } // {n}
 	       else if(tags[2]!=eopat[2]){ N = atoi(tags[2]); z|= 2; }
-	       if(z==0){ mp = storeCHR('{',mp,&str,&lp,sp); break;   } // {,}
+	       if(z==0){ mp = storeCHR('{',mp,str); break;   } // {,}
 
 	       switch(*sp){	// some redundancy here for CYA
 		  default: BADPAT(dfa,"regExpCompile: Invalid {} closure");
@@ -768,18 +1025,38 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 		  case DIGIT: case N_DIGIT: case SPACE: case N_SPACE:
 		  case ALPHA: case N_ALPHA: case EOT: //case EDON:
 		     break;
+		  case CLOMN:	// too much work and adding (?:) isn't
+		     /* [0-9a-f]{3}{1,2} --> (?:[0-9a-f]{3}){1,2}
+		      * {}{} should be OK but *nobody* likes to see CLOMN
+		      * CLOMN BOT: stake moves, dfaDump, op_CLOMN choke &
+		      * probably dfaScanForward too.
+		      */
+		     BADPAT(dfa,"regExpCompile: {}{} --> (?:{}){}");
 	       }
 
-	       p      = (UChar *)eopat[0] - 1;	// '}'
-	       tp     = &tagstk[tagi + 1];
-	       pacman = (packRat(p,sp,tp,CLOMN,mp,&b) != 0); // force to 0/1
+	       p  = (UChar *)eopat[0] - 1;	// '}'
+	       tp = &tagstk[tagi + 1];
+	       if(justLooking){
+		  if(M==0) seed = 0;
+		  if((*sp==EOT || *sp==EDON) && cscape->stake > tp->botAddr) break;
+		  pacman = 0;		// no more recursion
+	       }else{
+		  char *s;
+		  cscape->mp	 = mp;   cscape->sp = sp;
+		  cscape->tagi   = tagi;
+		  cscape->tagc   = tagc;
+		  cscape->ortagc = ortagc;
+		  cscape->nodeId = nodeId; cscape->orCnt = orCnt;
+		  pacman = packRat(p,sp,tp,&_,cscape, &s);
+		  if(s) return s;
+	       }
 
 	       if(M!=N || z==1){// {n}(4) & {n,n}(3) don't fork(), {0,}(1) does
 		  tagstk[tagi].forks |= !pacman; // if we are actually in a tag
 		  tagstk[tagi].vwidth = 1;	 // a{2,3} 
 	       }else pacman = 0;	// {n}: fixed width match
 	    }else{
-	       mp = storeCHR('{',mp,&str,&lp,sp);   // context matters
+	       mp = storeCHR('{',mp,str);   // context matters
 	       break;			     // not CLOMN, just text
 	    }
 	    if(M>0xff || N>0xff || (M>N && N))
@@ -787,32 +1064,46 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    if((M==0 && N==0) && z>1)  // {,0}(z==2), {0,0}(z==3), {0}(z==4)
 	       BADPAT(dfa,"regExpCompile: {0} & {0,0}: Invalid");
 	    
+//??? .{0,} --> DOTSTAR?
 	    n  = (*sp==CHR);	// remember this for later
 	    lp = sp;		// previous opcode
 
-	    if(*sp==EOT || *sp==EDON){
-	       // CLOMN M N BOT sz flags: 6 bytes
+	    if(*sp==EOT || *sp==EDON){	// EDON "in progress"
+	       // CLOMN M N BOT flags sz: 6 bytes, flags as above
+	       // Same as CLO with addition of M & N
 	       //(a){1,2}  -->CLOMN 1 2 BOT  7 0   BOT 1 CHR a EOT 1 END
 	       //(a*b){1,2}-->CLOMN 1 2 BOT 11 1   BOT 1 CLO CHR a END CHR b EOT 1 END
 	       int sz, flags = pacman;
 
-	       if(tp->forks)
-		  BADPAT(dfa,"regExpCompile: (a*){m,n}, (a|b){m,n}: Invalid closure");
+	       if(tp->forks && !justLooking)
+		  BADPAT(dfa,"regExpCompile: Invalid {} closure: eg (.*a){m,n}, (a|b){m,n}");
+
+	       if(!justLooking && (M>1 || N)){
+		  // (a*){2,}b  fails to match aaab if a is PACMAN.
+		  // {0,} & {1,} work (ie *,+,?) but not {m,n}
+		  // a closure in the tail position is a prolem
+		  // !!!??? how to do this with tag?  ((b*|c)){2,}
+		  Byte *clo = 0;
+		  *mp = END; dfaScanForward(tp->botAddr,END,1,&clo);
+	       	  if(clo)	// there is a closure in the tail position
+		     // (a{2}){3,4} OK
+		     if(!(*clo==CLOMN && clo[1] && clo[1] == clo[2]))
+			BADPAT(dfa,"regExpCompile: Invalid {} closure: eg (a+){2,} OK: (a+b){2,}");
+	       }
 
 	       lp = tp->botAddr;
 	       sz = mp - lp;
-	       if(sz > 0xfe)
-		  BADPAT(dfa,"regExpCompile: (a){m,n}: a too long");
+	       if(sz > 0xfe) BADPAT(dfa,"regExpCompile: (a){m,n}: a too long");
 
-	       if(tp->has)	 flags |= 4;
-	       if(*sp == EDON)   flags |= (tp->forks ? 2 : 0);
-	       else	         flags |= (tp->vwidth && !pacman)<<1;
+	       if(tp->hast)    flags |= CLO_TAGS;
+	       if(*sp == EDON) flags |= (tp->forks ? CLO_VWIDTH : 0);
+	       else	       flags |= (tp->vwidth && !pacman)<<1;
 
 	       hz = 6;
-	       memmove(lp + hz, lp, sz); // open hole for CLOMN M N BOT sz flags
+	       memmove(lp + hz, lp, sz); // open hole for CLOMN M N BOT flags sz
 	       sp = mp + hz; mp = lp; 
-	       STORE(CLOMN); STORE(M); STORE(N); 
-	       STORE(BOT);   STORE(sz + 1); STORE(flags); 
+	       STORE(CLOMN); STORE(M);     STORE(N); 
+	       STORE(BOT);   STORE(flags); STORE(sz + 1);
 	       mp = sp;      STORE(END);
 	    }else{	// a{1,2} --> CLOMN 1 2 CHR a END
 	       hz = 3 + pacman;
@@ -827,9 +1118,9 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	       // pack strings? "ab{3,4}" --> CHR a CHR b --> 
 	       //			      CHR a CLOMN 3 4 CHR b END
 	    if(n){	// multi op op messes with check at end of switch
-	       str.sz--;	// "123456+" --> STR(12345) CLOP 6
-	       lp = chr2str(lp,mp, &str, 1, tagi,tagstk); // --> CLOMN
-	       mp = str.mp;
+	       str->sz--;	// "123456+" --> STR(12345) CLOP 6
+	       lp = chr2str(lp,mp, str, 1, tagi,tagstk); // --> CLOMN
+	       mp = str->mp;
 	    }
 	    sp = lp;	// CLOMN
 	    // leave lp & sp pointing to CLOMN so can check for **
@@ -843,6 +1134,8 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    if(ortagc){ tagc = ortagc; ortagc = 0; }
 	    if(tagc < RE_MAX_TAG && tagi < (COSMO_TAGS - 1)){
 	       nodeId++;  // I *might* worry about overflow with 16 bit ints
+	       // justLooking: tag *might* be node, won't know until )
+	       if(!pork){ pork = 1; porkPie = nodeId; }
 	       tp = &tagstk[++tagi];		// assume new node
 	       memset(tp,0,sizeof(Tag));
 	       tp->tagc = tagc; tp->botAddr = mp; tp->nodeId = nodeId; 
@@ -857,26 +1150,28 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    if(*sp==BOT) BADPAT(dfa,"regExpCompile: Null pattern inside ()");
 	      // "a)" --> <CHR a EOT n> or <CHR a EOT n EDON>
 	    if(*sp==CHR){  // multi op op messes with check at end of switch
-	       chr2str(mp,mp, &str, 0, tagi,tagstk);	// lp == mp
-	       lp = mp = str.mp;
+	       chr2str(mp,mp, str, 0, tagi,tagstk);	// lp == mp
+	       lp = mp = str->mp;
 	    }
 	    if(tagi > 0){
 	       tp = &tagstk[tagi--]; n = tp->tagc;
 	       if(!tp->cosmetic){ 
 		  STORE(EOT); STORE(n);
 		  tagLog[n] = 1;	// tag now holds data
-		  tp->has   = 1;	// tag is real (not cosmetic)
+		  tp->hast  = 1;	// tag is real (not cosmetic)
 	       }
-	       else *mp = EOT;		// fake op for "(?:)*"
+	       else{ *mp = EOT; mp[1] = 99; } // fake op for "(?:)*", 99 for debugging
 
 	       if(tp->hasOR && *sp==AORB) tp->forks |= 2;	// (a|) --> 2
 	    }
 	    else BADPAT(dfa,"regExpCompile: Unmatched )");
 
 	    if(tagi){	// child back propagates *?+{} : ((a*)), (a(b*c))+
-	       if(tp->forks)  (tp - 1)->forks  = tp->forks;
-	       if(tp->vwidth) (tp - 1)->vwidth = 1;
-	       if(tp->has)    (tp - 1)->has    = 1;
+	       Tag *tp_1 = (tp - 1);
+	       if(tp->forks)  tp_1->forks  = tp->forks;
+	       if(tp->vwidth) tp_1->vwidth = 1;
+	       if(tp->hast)   tp_1->hast   = 1;
+	       if(tp->hasOR)  tp_1->forks  = 1;	// (a|(b|c))*, nested OR
 	    }
 	       
 	    nodeId = tagstk[tagi].nodeId;	// restore nodeId
@@ -885,22 +1180,30 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	       Byte *sav;
 
 	       STORE(EDON);
-	       sav = mp + 1; mp = tp->botAddr; // botAddr --> from BOT to NODE
-	       memmove(mp + 1, mp, sav - mp);  // open hole for NODE
-	       STORE(NODE);	// using mp
-	       sp = lp + 1;	// point to EOT, EDON if cosmetic
-	       mp = sav;	// after EDON
-	       lp = mp - 1;	// point to EDON
+	       if(!(justLooking &&	// (a*|b): Don't move STAKE
+		    cscape->stake > tp->botAddr)){
+	          sav = mp + 1;
+		  mp  = tp->botAddr;	 // botAddr: put NODE before BOT
+		  memmove(mp + 1, mp, sav - mp);  // open hole for NODE
+		  STORE(NODE);	// using mp
+		  sp = lp + 1;	// point to EOT, EDON if cosmetic
+		  mp = sav;	// after EDON
+		  lp = mp - 1;	// point to EDON
+	       }
 	    }
 	    ortagc = 0;
+	    if(pork && porkPie==tp->nodeId) pork = 0;	// now we know
 	    break;
 	 case '|':
 	    // todo: a|b|c|d == [a-d]
 	    // Bad: "|","a|","|b" "(|)*"  OK: "(|)","(a|)","(|b)","(||b)","(||)"
-	    if(p==pat || !p[1]) BADPAT(dfa,"regExpCompile: Empty |, (|) OK");
-
+	    if(p==cscape->p0 || !p[1]) BADPAT(dfa,"regExpCompile: Empty |, (|) OK");
 	    tp = &tagstk[tagi];	// current OR level
-
+	    /* justLooking: if a is in node, b can't also be in node so this
+	     * node doesn't count. Also ignore nested tags/nodes.
+	     */
+	    if(!pork){ pork = 1; porkPie = tp->nodeId; } // a|b has no tag
+	    pork = 2;
 	    switch(*sp){  // "$|" OK
 	       case BOL: case BOW:	// ^|, \<|	????? why not?
 		  BADPAT(dfa,"regExpCompile: Invalid |");
@@ -920,14 +1223,14 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    }
 
 	       // I'm now the previous OR, fill out info for next OR
-	    tp->orAddr  = mp + 2;
-	    tp->orCnt   = orCnt; tp->hasOR = 1;
+	    tp->orAddr = mp + 2;
+	    tp->orCnt  = orCnt; tp->hasOR = 1;
 
 	    if(tp->cosmetic) n = 0;  // # tags in play
 	    else{
 	       n = tp->tagc;	// < RE_MAX_TAG
 	       z = n + 1; memset(tagLog + z, 0, RE_MAX_TAG - z);  // GC tags
-	       // don't have to sweat has - doNodeGlider doesn't care
+	       // don't have to sweat ?->hast - doNodeGlider doesn't care
 	    }
 		// Store (AORB, open? tags, link to next AORB in node)
 		// will update link at next sibling AORB
@@ -935,7 +1238,7 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 	    STORE(AORB); STORE(n); STORE(0);
 	    ortagc = n + 1;
 
-	    if(tagi==0) topor = 1;	// we'll deal with this in post
+	    if(tagi==0) cscape->topor = 1;	// we'll deal with this in post
 	    break;
 	 case '\\':		// backrefs, word transitions, space, etc
 	    switch(*++p){
@@ -976,171 +1279,81 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz){
 		  }
 		  if(!n) BADPAT(dfa,"regExpCompile: \\xHH, \\x00 is bad");
 
-		  mp = storeCHR(n,mp,&str,&lp,sp);
+		  mp = storeCHR(n,mp,str);
 		  break;
             #endif
 	    #ifdef EXTEND
-	       case 'b': mp = storeCHR('\b',mp,&str,&lp,sp); break;
-	       case 'e': mp = storeCHR('\e',mp,&str,&lp,sp); break;
-	       case 'f': mp = storeCHR('\f',mp,&str,&lp,sp); break;
-	       case 'n': mp = storeCHR('\n',mp,&str,&lp,sp); break;
-	       case 'r': mp = storeCHR('\r',mp,&str,&lp,sp); break;
-	       case 't': mp = storeCHR('\t',mp,&str,&lp,sp); break;
+	       case 'b': mp = storeCHR('\b',mp,str); break;
+	       case 'e': mp = storeCHR('\e',mp,str); break;
+	       case 'f': mp = storeCHR('\f',mp,str); break;
+	       case 'n': mp = storeCHR('\n',mp,str); break;
+	       case 'r': mp = storeCHR('\r',mp,str); break;
+	       case 't': mp = storeCHR('\t',mp,str); break;
 	    #endif
-	       default:  mp = storeCHR(*p,  mp,&str,&lp,sp); break;  // \a
+	       default:  mp = storeCHR(*p,  mp,str); break;  // \a
 	    } // \ switch
+	    seed = 1;
 	    break;
 	 default:
-	    mp = storeCHR(*p,mp,&str,&lp,sp);   // an ordinary character
+	    mp = storeCHR(*p,mp,str);   // an ordinary character
+	    seed = 1;
 	    break;
       }// switch
 
       // see if we can convert a sequence of CHRs to a STR
       if(*sp==CHR){
       	 if(*lp!=CHR){  // CHR a !CHR, ASSUMES *lp is valid, ie wrote op
-	    lp = chr2str(lp,mp, &str, 1, tagi,tagstk);
-	    mp = str.mp;
+	    lp = chr2str(lp,mp, str, 1, tagi,tagstk);
+	    mp = str->mp;
 	 }else	// if CHR a CHR b ... CHR z > 1 byte, split up
-	    if(*lp==CHR && str.sz >= 250){  // chop long strings to Byte sized
+	    if(*lp==CHR && str->sz >= 250){  // chop long strings to Byte sized
 	       // !!add additional check to pack if close to endDFA
 	       /*        CHR a CHR b CHR c __  split at >=3, p=="defghi..."
 	        * str.mp/         lp/   mp/
 	        *        STR 3 a b c __
 	        *     lp/         mp/
 	        */
-	       lp = chr2str(lp,mp, &str, 0, tagi,tagstk);
-	       mp = str.mp;
+	       lp = chr2str(lp,mp, str, 0, tagi,tagstk);
+	       mp = str->mp;
 	    }
       }// CHR to STR
 
       sp = lp;		// start of previous state/op
 
-      if(mp > endDFA) BADPAT(dfa,"regExpCompile: Expression too long)");
+      if(mp > cscape->endDFA) BADPAT(dfa,"regExpCompile: Expression too long)");
+
+      if(justLooking){
+	 if(pork == 2) seed = 0;	// in a OR clause
+	 // we have seed whatever b will be? Not if a*b* p=='b' or in OR
+	 if(seed && !pork && !strchr("*+?{",p[1])) break;
+      }
    }// for
 
-   if(tagi > 0) BADPAT(dfa,"regExpCompile: Unmatched (");
-
-   if(*sp==CHR){	// "abc" --> STR(3)abc
-      chr2str(mp,mp, &str, 0, 0,tagstk);
-      mp = str.mp;
-   }
-
-   /*  a|b|c  --> (?:a|b|c)
-    * ^a|b|c  --> (?:^a|b|c), ^ is not global
-    *  a|b|c$ --> (?:a|b|c$), $ ""
+   /* "abc" --> STR(3)abc
+    * if justLooking, likely just part way through string (hit seed), don't
+    * compress as that can move STAKE: colou?r   lookahead starts post ? (at
+    * "r"), colou?r --> colour
     */
-   if(topor){	// top level OR, wrap DFA in Node
-      memmove(dfa + 1, dfa, (mp - dfa));	// move an extra byte, RE_SLOP
-      *(dfa + 1) = NODE;
-      mp++;
-      STORE(EDON);
+   if(!justLooking && *sp==CHR){
+      chr2str(mp,mp, str, 0, 0,tagstk);
+      mp = str->mp;
    }
 
-   STORE(END);
+   cscape->tagi = tagi;
+   cscape->mp   = mp;
 
-   ////////////////////////////////////////// post process DFA
+   if(justLooking && pork == 2) STORE(EDON); // a*|bcd: terminate tagless Node
+   *mp = END;	// because I'll be calling dfaScanForward/dfaDump
 
-   /* Ponder:
-    * - .*(abc) --> DOTSTAR but not .*(a|b)
-    * -Common prefix: (dog|dogs) --> dogs?, a(bc\d) --> abc
-    * -Group holds: (cat|dog) --> HOLDS1OF(cat,dog)
-    *   ??Search for any of: find any of ("cat","dog")
-    *   ?Only not common combos ie don't sit in memchr/fork loop with lots
-    *     of noops
-    *   There are algorithms for multi string search such as "teddy",
-    *     Aho-Corasick, Commentz-Walter
-    *   Rust RE, ripgrep have good write ups.
-    * -Common suffix???: (a|ba|cba) --> (|b|cb)a   and do what? holds?
-    * -Disjoint sets: (abc|xyz) --> jmpTable(a:A, x:X) (A:bc|X:yz)
-    *   Good for: don't need to fork
-    *   Or compiler tells OR one op can decide which branch to continue
-    *   Differerent from PACMAN, PACMAN can have multiple wins
-    * -If RE ends with $, consider starting at end and repeat: back up, match
-    * -If reverse(dfa) exists:
-    *   -If RE has STR in middle and RE_SEARCH, strstr to that and match
-    *   left and right. This can be dicy.
-    *   Or if line oriented, back to start of line
-    * - Line oriented RE_SEARCH: use STR to find a line, back up to start of
-    *    line, match. No match --> repeat
-    */
-
-   mp = hooverPrefix(dfa,mp);
-
-   #if DO_HOLDS	// Are there any long strings that have to be in any match?
-   	/* STR at start of DFA == HOLDS
-	 * HOLDS hops-to-STR	2 bytes
-	 * We are adding to the DFA, we have [at least] most of RE_SLOP so
-	 *   at 2 bytes, we have room for RE_SLOP/2 (== 25) HOLDS.
-	 * If there is a leading BOL (^), we'll add HOLDS after it.
-	 */
-      #define HOLDS_MAX      4	// the max number of HOLDS I'll use
-      #define HOLDS_MIN_STR 10  // min len of string that worth searching for
-//   if(!topor && str.maxSz >= HOLDS_MIN_STR){ // not one big OR & maybe long STRs
-   if(!topor && dfa[1]!=BOL && str.maxSz >= HOLDS_MIN_STR){ // not one big OR & maybe long STRs
-      Byte *dfa1 = dfa + 1, *dp;
-      int   n, z, hops, sz, minSz = 0;
-      struct{ Byte *str; int sz, hops; } strs[HOLDS_MAX] = { 0 },
-          *smp = strs, *sp;
-
-//    if(*dfa1 == BOL)    dfa1++;	// don't move ^
-      if(*dfa1 == PREFIX) dfa1 += 3 + dfa1[1]; // action starts after PREFIX
-
-#if 0
-      Byte unk1[] = { BOL,EOL,BOT,EOT,BOW,EOW,REF, },
-           unk2[] = { CHR,ANY,SET,NSET,DIGIT,N_DIGIT,SPACE,N_SPACE,ALPHA,N_ALPHA };
-      n = 4;
-      do{
-	 if(!memchr(unk1,*dfa1,sizeof(unk1))){
-	    if(memchr(unk2,*dfa1,sizeof(unk2))) n--;
-	    else break;
-	 }
-      }while( (dfa1 = dfaScanForward(dfa1,0xff,2)) && n);
-      // don't HOLDS a STR before dfa1
-#endif
-
-      	// find the HOLDS_MAX longest STRs outside of Nodes
-	// skip if DFA starts with STR
-      for(hops = 0, dp = dfa1; (dp = dfaScanForward(dp,STR,1)); ){
-         sz = dp[1]; 
-	 if(++hops > 0xfd) break;	// 1 byte worth of index
-         if(hops && dp > dfa1 && sz >= HOLDS_MIN_STR && sz > minSz){
-	    smp->sz = sz; smp->str = dp; smp->hops = hops;
-	    // find smallest slot
-	    for(minSz = strs[0].sz, z = HOLDS_MAX, sp = smp = strs; z--; sp++)
-	       if(sp->sz < minSz){ minSz = sp->sz; smp = sp; }
-         }
-	 dp += (sz + 2);	// op after STR
-      }//for
-
-      for(n = 0; n < HOLDS_MAX && strs[n].sz; n++){}	// count strings
-      if(n){      	// insert HOLDS at start of DFA
-         sz = n<<1;	// space needed for <HOLDS hops>*n
-//	 if(*dfa1 == BOL) dfa1++;	// don't move ^
-//	 if(*dfa1 == PREFIX) dfa1 += 3 + dfa1[1]; // don't move PREFIX
-	 memmove(dfa1 + sz, dfa1, (mp - dfa));
-	 for(z = n, sp = strs, dp = dfa1; z--; sp++, dp += 2)
-	    { dp[0] = HOLDS; dp[1] = sp->hops; }
-	 mp += sz;
-      }
-   }
-   #endif	// DO_HOLDS
-
-   *dfaSz = (mp - dfa);		// in case you want to malloc() the dfa
    return 0;
 }
 
-    // store one CHR that may convert to STRing
-static UChar *storeCHR(char c, Byte *mp, Str *str, Byte **lp, Byte *sp){
-   #if DO_DOTSTAR   // .*a --> CLO ANY END CHR a --> DOTSTAR CHR a
-   if(*sp==CLO &&   // .+ --> ..*
-      (sp[1] == ANY && sp[2] == END)){		// .* can not PACMAN
-      mp -= 3;
-      STORE(DOTSTAR);
-      *lp = mp;		// lp --> CHR, else PACMAN can garble
-   }
-   #endif
+    // Store one CHR that may convert to STRing
+static UChar *storeCHR(char c, Byte *mp, Str *str){
+   // save consecutive CHRs so I can compress them into a STR
    if(str->sz == 0){ str->mp = mp; }
    str->string[str->sz++] = c;
+
    STORE(CHR); STORE(c);
    return mp;
 }
@@ -1170,25 +1383,24 @@ static UChar *storeCHR(char c, Byte *mp, Str *str, Byte **lp, Byte *sp){
     */
    /* Doing a post process with dfaScanForward and CHR counting would be
     * simpler (much less convoluted) but I'd also have to "garbage" collect
-    * in the [unlikely] case I ran into the end of allocated DFA space.
+    * in the [unlikely] event I ran into the end of allocated DFA space.
     * Here, converting on the fly, I still have the same issue, but it is
     * much closer to the limit, so I'm pretending not to care.
     */
 static Byte *chr2str(
-   UChar *lp, UChar *mp, Str *str, int moveOp,
-   int tagi, Tag *tagstk)
+   UChar *lp, Byte *mp, Str *str, int moveOp, int tagi, Tag *tagstk)
 {
    int   sz = str->sz;	// strlen - \0
    Byte *dp = str->mp, *chr = dp;	// first CHR
 
-   if(sz < 5){	// Too small to bother with. Min 3 (useful for testing)
+   if(sz < 4){	// Too small to bother with. Min 3 (useful for testing)
       str->sz = 0;	// reset for next string
       str->mp = mp;
       return lp;	// no-op
    }
 
    #if ANDTHENULL
-     str->string[sz++] = '\0';	// include \0
+     str->string[sz++] = '\0';	// include \0 in size
    #endif
 
    if(sz > str->maxSz) str->maxSz = sz;		// track for HOLDS
@@ -1232,86 +1444,171 @@ static Byte *chr2str(
    return dp;
 }
 
-   /* Look for prefix character in common. This is for RE_SEARCH, we can
-    * memchr to start points rather than character at a time. memchr has
-    * magic (muti character CPU instuctions) to give it wings.
-    * Examples:
-    *   -"abc": Prefix of 'a'
-    *   -"RE starts with string": Use strstr instead of memchr
-    *   -(a|ab|abc) --> a(|b|bc): Prefix of 'a'
-    *   -(a|b|c): Prefix of 'a', 'b', 'c'
-    *   -"\d": 10 prefix characters.
+   /* Look for prefix character(s). This is for RE_SEARCH: we can memchr()
+    *   to start points rather than character at a time. memchr has magic
+    *   (muti character CPU instuctions) to give it wings.
     * Collect all prefix characters into a SET.
+    * Examine the DFA only until a "character" is seen.
+    * Examples:
+    *   -"abc": Prefix of [a]
+    *   -"RE starts with string": Use strstr instead of memchr
+    *   -(a|ab|abc) --> a(|b|bc): Prefix of [a]
+    *   -(a|b|c+): Prefix of [abc]
+    *   -\d, [0-9] : 10 prefix characters: [0123456789]
+    *   -(a*) --> [a.] == [] : "a" does not need to be in the search text
+    *     which means it can not be an anchor.
+    *   -a*b --> [ab] : "a" may or may not be in search text but "b" has
+    *     to be. So "a" can be a maybe anchor in conjuction with "b".
+    *    In general, closures have to be "anchored" to be a prefix.
+    * Or: we are looking for suffixes: In a*b, can a* PACMAN?
+    *   Pretty much the same, a suffix is the following prefix.
+    *   Diff: CLO is not a prefix (a* --> []) but can be part of a suffix:
+    *   Note: a*b+ is split at * == (a)(b+) when looking for pre/suffix
+    *   -a*(b*|c)d -a-> [a] [bcd], ie a* stops at b, c or d and if a is none
+    *     those, PACMAN: consume "a" while looking at "a" knowing that the
+    *     stopping point is the only valid starting point for (b*|c)d.
+    *   -(a*)*[bc]   (a*)+[bc] (a+)*[bc]  --> [a][bc] (twice)
+    *   -!!! (a*){2,}[bc] --> [a][bc] BUT does NOT match aaab
+    *     PCRE --> [0,4] ""
+    *   Have to keep looking until the first "solid character" after
+    *     consecutive CLOs.
+    *   EOL==END
+    * Input:
+    *   bitTable: zero'd set that will be filled in
+    *   suffix: 0 (no CLO), 1 (looking for PREFIX), 
+    *           2+ (looking for prefix or suffix in a*b)
     * Returns: 0: no prefix
     */
-static int _hooverPrefix(Byte *dfa, Byte bitTable[BITBLK], int *str){
-   int  n,z;
+static int _hooverPrefix(
+   Byte *dfa, Byte bitTable[BITBLK], int suffix, 
+   int *str, int *end, int *clod)
+{
+   int  n, z = 0, clo = 0, cloSz;
+
+   if(clod) *clod = 0;
 
 doitagain:
+   for(; *dfa==EOT; dfa += BOTSZ) {}	// for packRat(): ))))))b
    for(; ; dfa++)
-     if(*dfa==BOT) dfa++;	// (((((a
+     if(*dfa==BOT)	 dfa++;		// (((((a
      else if(*dfa!=PACMAN) break;
-   z = 0;
+   if(*dfa==END || *dfa==EOL){
+      if(clo){
+      	 if(suffix==1) return 0;	// closure not terminated by anchor
+	 return z;
+      }
+      if(end) *end = 1;
+      return 0;
+   }
+   clo = 0; cloSz = ANYSKIP;
+
 premore:
    switch(*dfa){
-      case CHR: chset(bitTable,dfa[1]);	       z = 1; break;
-      case STR: chset(bitTable,dfa[2]); *str = z = 1; break;
+      default: z = clo = 0; break;	// eg a*b*. or (a*)(b*)\1
+      //case REF:	// this is the same as . : (a*)\1 --> [a][a]
+      //case END: case EOL: covered above
+      case CHR: chset(bitTable,dfa[1]);	       z = 1; cloSz = CHRSKIP; break;
+      case STR: chset(bitTable,dfa[2]); *str = z = 1; cloSz = dfa[1];  break;
       case DIGIT:
-//	 for(n = 0; n<10; n++) chset(bitTable, n + '0');
-	 bitTable[6] = 0xff; bitTable[7] |= 0x3; 
+	 #if MAXCHR==256
+	 bitTable[6] = 0xff; bitTable[7] |= 0x3;	// MAXCHR==256
+	 #else
+	 for(n = 0; n<10; n++) chset(bitTable, n + '0');
+	 #endif
 	 z = 10;
+	 break;
+      case N_DIGIT:
+	 for(z = 0; z < MAXCHR; z++) if(!isdigit(z))     CHSET(bitTable,z);
 	 break;
       case SET:
 	 dfa++;
-	 for(z = 0; z < MAXCHR; z++) if(ISINSET(dfa,z)) CHSET(bitTable,z);
+	 for(z = 0; z < MAXCHR; z++) if(ISINSET(dfa,z))  CHSET(bitTable,z);
+	 cloSz = SETSKIP;
 	 break;
-      //case NSET:	    
+      case NSET:	    
+	 dfa++;
+	 for(z = 0; z < MAXCHR; z++) if(!ISINSET(dfa,z)) CHSET(bitTable,z);
+	 cloSz = SETSKIP;
+	 break;
       case SPACE:	// space, '\f', '\n', '\r', '\t', vertical tab
-	 for(z = 0; z < MAXCHR; z++) if(isspace(z)) CHSET(bitTable,z);
+	 for(z = 0; z < MAXCHR; z++) if(isspace(z))	 CHSET(bitTable,z);
 	 break;
-      case ALPHA:
-	 for(z = 0; z < MAXCHR; z++) if(IS_WORD(z)) CHSET(bitTable,z);
+      case N_SPACE:
+	 for(z = 0; z < MAXCHR; z++) if(!isspace(z))	 CHSET(bitTable,z);
 	 break;
-      //!! CLO: ONE:	// CLO or ONE can *not* be PREFIX
-	 // !!!(a*b)+c --> PREFIX is [ab] 
-	 // for PACMAN: (a*b)+(c*d): [ab] --> []
+      case ALPHA:   //case BOW: ???
+	 for(z = 0; z < MAXCHR; z++) if(IS_WORD(z))	 CHSET(bitTable,z);
+	 break;
+      case N_ALPHA: //case EOW: ???
+	 for(z = 0; z < MAXCHR; z++) if(!IS_WORD(z))	 CHSET(bitTable,z);
+	 break;
+      case CLO: case ONE:	// CLO, ONE, {0,} can *not* be PREFIX
+	 //   except: (a*b)+c --> PREFIX is [ab] 
+	 // but they *can* *sometimes* be suffixes
+	 //   a+b? --> [a] [b$]   a+b?c -a-> [a] [bc] -b-> [b] [c]
+	 //   a+(c*d) -a-> [a] [cd] -c-> [c] [d]
+	 //   a*b?c* -a-> [a] [bc]  -b-> [b] [c]  -*-> [c] [$]
+	 //   (a*)(b{0,4}|c)X  -*-> [a][Xbc]  -{}-> [b][Xc]
+	 if(suffix) clo = 1;
+	 else	    break;
+	 //fallthrough
       case CLOP:
       clipClop:
-	 if(dfa[1]!=BOT) { dfa++;    goto premore;   }	// a+
-	 if(dfa[4]!=NODE){ dfa += 4; goto doitagain; }	// (a+), (?:a+)
-	 goto knowNode;
+	 if(dfa[1]!=BOT){ dfa++; goto premore; }	// a*b*
+	 cloSz = dfa[3]; dfa += CLOHEADERSZ;
+	 if(*dfa!=NODE){		// a*(b)*a, a*(?:b)*a, a*(b)*(c)*a
+	    z = _hooverPrefix(dfa,bitTable,suffix,str,end,&n); // <= COSMO_TAGS
+	    clo |= n;	// if a closure was seen, more info needed
+	    break;
+	 }
+	 goto knowNode;				// a*(b|c)*
       case CLOMN:
-	 if(dfa[1]){ dfa += 2; goto clipClop; } // no PREFIX for a{0,}
-	 break;
+	 if(dfa[1]==0){		// M==0 == CLO
+	    if(suffix) clo = 1;
+	    else       break;
+	 }
+	 dfa += 2;		// where CLO would be
+	 goto clipClop;
       case NODE:
       knowNode:
       {
-	 Byte *nextOR = dfaScanForward(++dfa,AORB,1);
+	 Byte *nextOR = dfaScanForward(++dfa,AORB,1,0);
+	 int   clod;
 	 z = 1;
+	 if((*dfa == BOT && dfa[2] == AORB) ||		// (|b) 
+	     *dfa == AORB){ z = 0; goto done; }		// (?:|b)
 	 while(1){
-	    n = _hooverPrefix(dfa,bitTable,str);
-	    if(!n){ z = 0; goto done; }	// this clause has no prefix, OR has none
+	    n = _hooverPrefix(dfa,bitTable,suffix,str,end,&clod);
+	    if(!n){ z = 0; goto done; }	// this clause no prefix --> OR has none
+	    clo |= clod;
 	    if(!nextOR) break;
-	    dfa     = nextOR;
-	    nextOR  = dfa[2] ? dfaScanForward(dfa + 3,AORB,1) : 0;
-	    dfa     += 3;		// op after OR
-	 }// while
+	    dfa      = nextOR;
+	    if(dfa[ORSZ] == AORB){ z = 0; goto done; }  // (a||b)
+	    nextOR   = dfa[2] ? dfaScanForward(dfa + ORSZ,AORB,1,0) : 0;
+	    dfa     += ORSZ;		// op after OR
+	    if((*dfa == EOT && dfa[2] == EDON) ||	// (a|)
+	        *dfa == EDON){ z = 0; goto done; }	// (?:a|)
+	 }//while
+	 if(clo){ dfa = dfaScanForward(dfa,EDON,1,0); cloSz = 1; }
       done: ;
       }
          *str = 0;
-	 break;
+         break;
+      case AORB: case EDON: if(clod) *clod = 1;	break;	// if clo
    }//switch
+
+   if(clo){ dfa += cloSz; goto doitagain; }
    return z;
 }
 
-#define MAX_PREFIXES 15
+#define MAX_PREFIXES 15		// want (\d+|\(\d)+)
 static Byte *hooverPrefix(Byte *dfa, Byte *mp){
    Byte prefixes[MAX_PREFIXES + 1], pset[BITBLK] = { 0 };
    int  c,n,sz, str = 0;
 
    if(dfa[1]==BOL) return mp;	// ^a == anchored so no prefix
    
-   if(_hooverPrefix(++dfa,pset,&str)){
+   if(_hooverPrefix(++dfa,pset,1,&str,0,0)){
       for(c = 0, n = 0; c < MAXCHR && n <= MAX_PREFIXES; c++)
          if(ISINSET(pset,c)) prefixes[n++] = c;  // overfill for next test
       if(n<=MAX_PREFIXES){
@@ -1326,124 +1623,115 @@ static Byte *hooverPrefix(Byte *dfa, Byte *mp){
    return mp;
 }
 
-   /* Is closure multiple choice or just a consume?
-    * Input:   p --> one of "*+?})"
-    * Returns: 0 (need to fork), 1 (no fork needed, just consume)
+   /* Find prefixes and suffixes for op that *will* be (but isn't currently)
+    * closed:  (dfa[sp or tp->botAddr .. mp]).
+    * ie in a*: sp --> CHR a, (a)*: botAddr --> BOT 1 CHR a EOT 1 <-- sp
+    * (?:a*b)* botAddr --> [PACMAN] CLO a END b END EOT 99 <-- sp/mp (fake op)
+    * with no END <-- doesn't matter as _hooverPrefix() only looks at the
+    * first op of "consequence", ie won't see phantom EOT ("()" invalid).
+    *
+    * Is closure multiple choice or just a consume?
+    * Returns: 0 (need to fork), CLO_PACMAN (no fork needed, just consume)
     * 
     * Given A*B, we are looking to see if A & B are disjoint. If they are,
     *   we know the greedest A* is the winner (as A can not match B). The
     *   problem is how to determine A & B. Since we are looking at A*, that
-    *   has been compiled so we can look at the DFA (for A). For B, we do a
-    *   half assed parse. Since I'm lazy, I'm looking at the simplist test of
-    *   disjointness: the first "character" of A & B. Eg, (aa) and (ab) are
-    *   disjoint but I don't see it.
+    *   has been compiled so we can look at the DFA (for A). For B, compile
+    *   ahead, just far enough to know what we need to know about B.
+    * I'm looking at the simplist test of disjointness: the first
+    *   "character" of A & B. Eg, (aa) and (ab) are disjoint but I don't see
+    *   it.
     * Within a closure, a closure (*,?,{0,}, not +, {n,} is match anything
     *   because of the zero case. In (a+b)+c there will always be a test for
-    *   a but not so in (a*b)+c. The former has one choise: consume a's (to
+    *   a but not so in (a*b)+c. The former has one choice: consume a's (to
     *   b, == PACMAN), the latter, many: (!*\w)+c match abcd
-    * 
-    * Cases: Consume a while a (where a is CHR (a, [a], \d, \1) or tag):
-    *   Node invalid, ie no (a|b)*c  Because nodes fork. Not my problem.
-    *   a*\0, (a)*\0, (a*)*, (a*b)*, a*$, a*$|b
-    *   a*b  (a*)b  need lookahead for a*[b]  a*\d
-    *   \d*a  \s*a  \w*1
-    *   [a]*b  [^a]*a  need lookahead for a*[b]
-    *   (ab{3,}c)
-    *   (...|a*)b  need lookahead for (a*|..)b
-    * No: a*a  (a*)*  a*\a  a*.  a*[a]  a**  a*?a  a*{2}a  a*(a)  (a*|b)a
-    *     .*a  (ab)*ab
-    *   (a*b)*b  (a*b)*c  ((ab)+c)+  (a.b)+c: too much like (ab)*ab
-    * Punted on several ...$
-    * This will go away when I figure out compile ahead.
-    */
-static int _packRat(Byte aset[BITBLK], UChar *p, Byte *_b){
-   char op     = *p;
-   int  pacman = 0;
-
-   *_b = 0;
-   p++;
-   if(!*p) pacman = 1;  // "a*", (a*b)* but not (a*)* (ie PACMAN OK)
-   else{
-      #define _stuff_ "\\.[*+?{(|^"
-      UChar *ptr = p, b;
-
-      while(*ptr==')') ptr++;		// a*))))))b
-      b = *ptr;
-      if(!b) return 1;			// a*$
-
-      if(b=='\\'){	// a*\d  a*\D  etc?
-	 b = ptr[1];
-	 if(aset){
-	    switch(b){
-	       case 'd':	// a+\d
-		  for(int c = '0'; c<='9'; c++) if(ISINSET(aset,c)) return 0;
-		  return 1;
-	       case 'D':	// a+\D --> a must be a digit and only a digt
-		  for(int c = 0; c < MAXCHR; c++)
-		    if(ISINSET(aset,c) && !isdigit(c)) return 0;
-		  return 1;
-	       case 's':
-		  for(int c = 0; c < MAXCHR; c++)
-		    if(ISINSET(aset,c) && isspace(c)) return 0;
-		  return 1;
-	       case 'S':
-		  for(int c = 0; c < MAXCHR; c++)
-		    if(ISINSET(aset,c) && !isspace(c)) return 0;
-		  return 1;
-	       case 'w':
-		  for(int c = 0; c < MAXCHR; c++)
-		    if(ISINSET(aset,c) && IS_WORD(c)) return 0;
-		  return 1;
-	       case 'W':
-		  for(int c = 0; c < MAXCHR; c++)
-		    if(ISINSET(aset,c) && !IS_WORD(c)) return 0;
-		  return 1;
-	       case '<': case '>': break;	//!!!????????????????????
-	       default: break;		// treat as CHR but ?EXTEND
-	    }//switch
-	    return 0;
-	 }
-//	 for(int n = BITBLK; n--; ) if(aset[n] & bset[n]) return 0;
-      }else{
-	 if(!ptr[1] && (b=='*' || b=='?' || b=='+')) return 1;	// (\d+)?  
-if(op=='+' && b=='+' && ptr[1]) b = ptr[1];	// (a+)+b?
-
-	 if(!memchr(_stuff_,b,sizeof(_stuff_) - 1)){	// a*b, is b CHR?
-   	    *_b = b;
-	    if(aset && !ISINSET(aset,b)) return 1;
-	 }
-      }
-   }
-   return pacman;
-}
-
-    /* Find prefixes for op that *will* be (but isn't currently) closed:
-     * (dfa[sp or tp->botAddr .. mp]).
-     * ie in a*: sp --> CHR a, (a)*: botAddr --> BOT 1 CHR a EOT 1 <-- sp
-     * (?:a*b)* botAddr --> [PACMAN] CLO a END b END EOT ? <-- sp/mp (fake op)
-     * with no END <-- doesn't matter as _hooverPrefix() only looks at the
-     * first op of "consequence", ie won't see phantom EOT ("()" invalid).
-     */
-static int packRat(UChar *p, Byte *sp, Tag *tp, Byte clo, Byte *mp, Byte *b)
+    * "Normally", the prefix is the "thing" (eg a* --> [a], (abc)* --> [a]).
+    *   If looking for a prefix in something that is a closure (eg (a*b)*c
+    *   at *2), have to keep looking to find a "non-zero" thing: --> [ab]
+    *   stopping at *2: (a*b*)*c has the same prefix.
+    */ 
+static int packRat(
+   UChar *p, Byte *sp, Tag *tp, Byte *b, CompileState *cscape, char **error)
 {
-   Byte pset[BITBLK] = { 0 };
-   int n, pacman = 0, op = *sp, str = 0;
+   Byte aset[BITBLK] = { 0 }, *d, *mp = cscape->mp;
+   int n, pacman = 0, op = *sp, str = 0, end = 0;
 
-   if(op==EOT || op==EDON) 
-	n = _hooverPrefix(tp->botAddr, pset,&str);
-   else	n = _hooverPrefix(sp,	       pset,&str);
-   if(n){
-      //printf("PSET ["); for(n = 0; n < MAXCHR; n++) if(ISINSET(pset,n)) printf("%c",n); printf("]\n");
+   *b = 0; *error = 0; 
+   if(op==ANY) goto suffix;	// check for .*b, .?b, .{}   . has no prefix
 
-      /* one op compile at botAddr, dig into that to find op@p, 
-       *   _hooverPrefix to find b : ((a+)b)+
-       * if next op is END or EOL, pacman = 1
-       * if(one b) *b = b;
+   // Since dfa is not zero'd, it is garbage after mp, so put an END to it.
+   // Or previous look aheads may have left droppings
+   if(*mp==EOT) mp += 2;	// fake EOT (EOT 99)?
+   *mp = END;
+
+   if(op==EOT || op==EDON)
+	n = _hooverPrefix(tp->botAddr, aset,2,&str,0,0);  // (a)*, (a*b)*c
+   else n = _hooverPrefix(sp,	       aset,0,&str,0,0);  //  a*
+   if(n){	// found a, now find b
+      DEBUGCODE( printf("ASET ["); for(n = 0; n < MAXCHR; n++) if(ISINSET(aset,n)) printf("%c",n); printf("]\n"); )
+
+   suffix: ;
+      Byte  bset[BITBLK] = { 0 }, 
+           *tagLogSP, tagLog[RE_MAX_TAG];  // likely to be mangled
+      Byte *stake;
+      int   _,c;
+      char *s;
+      Str   str, *strSP;
+      Tag   tagstk[COSMO_TAGS], *tagstkSP;
+
+      // save copies of data that will be munged
+      memcpy(tagLog,cscape->tagLog,RE_MAX_TAG);
+         tagLogSP = cscape->tagLog; cscape->tagLog = tagLog;
+      memcpy(tagstk,cscape->tagstk,sizeof(tagstk));
+         tagstkSP = cscape->tagstk; cscape->tagstk = tagstk;
+      memcpy(&str,cscape->str,sizeof(Str));
+         strSP    = cscape->str;    cscape->str    = &str;
+	 str.sz   = 0;	// we are now out of sync with chr2str(), just reset
+
+//      *(stake = cscape->stake = mp++) = STAKE; cscape->mp = mp;
+      stake = cscape->stake = mp; STORE(STAKE); cscape->mp = mp;
+      *mp = END;	// in case somebody looks
+      // compile ahead so I can find b. Don't compile leading * == a
+      s = compile(p + 1,cscape,1);
+
+      // restore data pointers to original
+      cscape->tagLog = tagLogSP;
+      cscape->tagstk = tagstkSP;
+      cscape->str    = strSP;
+
+      if(s){ *error = s; return 0; }
+
+      /* Compile stops at text or, if in tag, compiles the tag (in case
+       *   it is a NODE) and repeat.
+       * If STAKE is in a NODE, skip to EDON and then look for suffix in
+       *   the next thing. If STAKE AORB .. EDON (no opening NODE)
+       *   or STAKE .. EDON
+       * If STAKE in front of a NODE, look in NODE for suffix: STAKE NODE
        */
+      stake++;
+      if(*stake!=NODE && (d = dfaScanForward(stake,EDON,1,0)) ){
+	 Byte *e;	// (a+|(b+|c)): at b : two dangling EDONs after STAKE
+	 for(d++; (e = dfaScanForward(d,EDON,1,0)); d = e + 1) {}
+	 stake = d;
+      }
+      n = _hooverPrefix(stake,bset,3,&_,&end,0);
+      if(end) return CLO_PACMAN;	// a*, a*$, a*b
+      if(n){
+	 DEBUGCODE( printf("  BSET ["); for(n = 0; n < MAXCHR; n++) if(ISINSET(bset,n)) printf("%c",n); printf("]\n"); )
 
-      pacman = _packRat(pset,p,b);
+	 if(op==ANY){	    // .*b check:
+	    for(c = n = 0; c < MAXCHR && n <= MAX_PREFIXES; c++)
+	       if(ISINSET(bset,c)){ *b = c; n++; }		// DOTSTAB
+	       //  if(ISINSET(bset,c)) prefixes[n++] = c;	// DOTSTAX
+	    if(n>1) *b = 0;
+	    return 0;	// leave post STAKE code. Or stake[1] = '\0';
+	 }
+
+	 for(pacman = CLO_PACMAN, n = 0; n < BITBLK; n++)
+	    if(aset[n] & bset[n]){ pacman = 0; break; } // same chr in both
+      }
+      *stake = END;	// 'cause I don't want to see the tailings
    }
-   else pacman = _packRat(0,p,b); // set b, EoL checks
    return pacman;
 }
 
@@ -1451,12 +1739,12 @@ static int packRat(UChar *p, Byte *sp, Tag *tp, Byte clo, Byte *mp, Byte *b)
 ////////////////////////// Run the DFA ///////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
-    // State for OR/Node morphed into packet of state info
-typedef struct
+
+typedef struct    // State for OR/Node morphed into packet of state info
    { Byte *dfa, *moreOR; Byte /*edon,*/ badDFA, noHolds, theEnd, dup; } Stator;
 
    // If I were to malloc the Fibers vector, each Fiber would only 
-   //  have the actual tags actually used (vs RE_MAX_TAG)
+   // have the actual tags actually used (vs RE_MAX_TAG)
 typedef struct Fiber{	// a "green" thread
    Byte    *dfa;
    UChar   *lp; 
@@ -1466,7 +1754,7 @@ typedef struct Fiber{	// a "green" thread
    Byte *payloadA, *payloadB;	//!!! if this goes, make these 16 bit offsets
    #endif
    unsigned gid:32;		// group ID for ?+*
-   unsigned id:16;	// id for debug, doesn't expand struct
+   unsigned id:16;		// id for debug, doesn't expand struct
    unsigned running:1, isor:1, tagged:1;
 }Fiber;		// 368 bytes 64 bit pointers
 
@@ -1481,7 +1769,7 @@ typedef struct{
    UChar   *ep;		// global so parent can know if matched happened
    UChar   *are;	// used by CLO/CLOP/ONE/CLOMN --> fork()
    char   **bopat;	// point to the "master" copy (which includes eopat)
-   ReErrorPacket *epac;
+   ReErrorInfo *epac;
 }MotherShip;		// 7,464 bytes 64 bit pointers & 20 Fibers
 
 static UChar *pmatch(MotherShip *, Byte *dfa, UChar *lp, 
@@ -1504,20 +1792,21 @@ static int    pullThread(MotherShip *);
  *	Locate the character without calling pmatch(), and if found, call
  *	  pmatch(). Because memchr/strchr/strstr/memmem are *much* faster
  *	  then pmatch. 
- *	If a match is not found, move to next character and repeat. Thus
+ *	If a match is not found, memchr to next character and repeat. Thus
  *	stepping through text in chunks vs character by character. Unless
- *	"a!" search "aaaaaaaaaaaaaaaa!" then probably slower than a pmatch.
+ *	"a!" search "aaaaaaaaaaaaaaaa!" then ?slower? than pmatch.
  *  STR (RE_SEARCH)
  *	Similar to CHR but with STRs.
  *	strstr/memmem to start of string in text. If pmatch fails, move to
- *	  (start point)[1] (not end of start as overlaps are a things),
+ *	  (start point)[1] (not end of start as overlaps are a thing),
  *	  repeat.
  *	aa\d search aaa2
  *  DIGIT (RE_SEARCH): "\d", "\d+", "(\d)", "(\d+)", (a|b|c), etc
  *	Similar to CHR but with 10 potential start points and too much
  *	state to maintain.
  *	Build list of start points.
- *	Sort to left most first, pmatch, replace with new start point, repeat.
+ *	Sort left most first: 
+ *	  pmatch(start point), next start point, repeat.
  *	This can be a huge win - 32x for (\d\d\d)\)\s+(\d{3}-\d{4})
  *	  18x for (\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})
  *	  searching this file.
@@ -1531,22 +1820,22 @@ static int    pullThread(MotherShip *);
  *   text:  String to match
  *   flags: See zkRE.h
  *      RE_MID : If text points into the middle of a bigger text,
- *        ie ^ is not text[0]
- *	If set, text[-1] MUST be at valid! A couple of REs will look there
- *	  if they can.
+ *          ie ^ is not text[0]
+ *	  If set, text[-1] MUST be at valid! A couple of OPs will look
+ *	    there if they can.
  *      RE_SEARCH : Move start forward on each fail trying to find a match.
  *   tags:  char *tags[2 * RE_MAX_TAG] or 0, these are the "(" ptrs into text
  *      if tags[0..RE_MAX_TAG - 1] != 0 then
  *        tags[n]-->start of match, tags[RE_MAX_TAG + n]-->end of match
  *      If tags==0, they are ignored and the match/search can be faster.
  *      tags are zero'd.
- *   ReErrorPacket: Filled in if match failed badly. Can == 0.
+ *   ReErrorInfo: Filled in if match failed badly. Can == 0.
  * Returns:
- *   0: Fail, ReErrorPacket may have been set (it was cleared)
+ *   0: Fail, ReErrorInfo may have been set (it was cleared)
  *   1: Match, tags set
  */
 int regExpMatch(Byte *dfa, char *text, char *tags[],
-	      unsigned int flags, ReErrorPacket *epac)
+	      unsigned int flags, ReErrorInfo *epac)
 {
    #define REX_FAIL	0
    #define REX_MATCHED	1
@@ -1567,7 +1856,7 @@ int regExpMatch(Byte *dfa, char *text, char *tags[],
    }
    #endif //HOME_BREW_CTYPE_H
 
-   if(epac) memset(epac,0,sizeof(ReErrorPacket));
+   if(epac) memset(epac,0,sizeof(ReErrorInfo));
 
    if(!dfa) return REX_FAIL;
 
@@ -1594,36 +1883,29 @@ tiptop:		// start over, as in doing a search
 
    memset(bopat,0,2*RE_MAX_TAG*sizeof(char *));	// wipe all tags
 
-	// Restart point after look ahead, a clean match
-	// See if I can help things along.
-	// If HOLDS starts dfa & move, we'll do the HOLDS, if fail,
-	//   actually do these tests
-//!!!rethink this for prefixes not good for HOLDS STR, HOLDS DIGIT  ...
-
-//   memset(bopat,0,2*RE_MAX_TAG*sizeof(char *));	// wipe all tags
-
    bopat[0] = (char *)lp;	// need state for Fibers, prefix matching
    memset(&stator, 0, sizeof(Stator));
 
+   // Restart point after look ahead, a clean match
+   // See if I can help things along.
    if(*dfa==PREFIX){  // optimizations for RE_SEARCH
       int   sz       = dfa[1];
       Byte *prefixes = dfa + 2;
       
       afa = dfa + sz + 3;
 
-      if(!move) goto onWithIt;	// !RE_SEARCH == no prefixing
+      if(!move) goto onWithIt;	// !RE_SEARCH == no prefixing, gotta inc afa!
       if(pstr || *prefixes==0){	// STR
 	 if(zero==0){
-	    pstr = dfaScanForward(afa,STR,1);
-if(!pstr){ printf("Where is string?\n"); return REX_FAIL; }
+	    pstr = dfaScanForward(afa,STR,1,0);
             zero = 1;
 	 }else lp = (UChar *)prefix_lps[0];
 
 	 #if ANDTHENULL	// orginally because Windows does not have memmem
 	    lp = (UChar *)strstr((char *)lp, (char *)(pstr + 2));
 	 #else
-	    // need end
-	    lp = memmem(lp,strlen((char *)lp), pstr, pstr[1]);
+	    // need an end pointer
+	    lp = memmem(lp,strlen((char *)lp), pstr + 2, pstr[1]);
 	 #endif
 	 if(!lp) return REX_FAIL;
 
@@ -1631,12 +1913,13 @@ if(!pstr){ printf("Where is string?\n"); return REX_FAIL; }
 	 prefix_lps[0] = (char *)(lp + 1);	// STR can overlap
 
 	 if(afa==pstr){		// skip over STR, rather not repeat it
+	    int n = afa[1];
 	    #if ANDTHENULL
-	       lp += afa[1] - 1;
+	       lp += n - 1;
 	    #else
-	       lp += afa[1];
+	       lp += n;
 	    #endif
-	    afa += afa[1] + 2;
+	    afa += n + 2;
 	 }
       }else{	// serialize prefix points
 	 int   n, c;
@@ -1664,6 +1947,7 @@ if(!pstr){ printf("Where is string?\n"); return REX_FAIL; }
    }
 onWithIt:
 
+   DEBUGCODE( if(move) printf("Starting search @ %s\n",lp) );
    ep = pmatch(&m,afa,lp,bopat,eopat,&stator);  // match or queue Fibers
    #if 0 	// or: (and next #if 0 goes away) ever so slightly slower?!?
       forkk(&m,afa,lp,bopat,&stator,0,0);
@@ -1740,8 +2024,8 @@ static UChar *_regExpFail(
 
 
 /***************************************************************************
-*            Cooperative threads for "back tracking"			   *
-***************************************************************************/
+ *            Cooperative threads for "back tracking"			   *
+ ***************************************************************************/
 
 static void initMotherShip(MotherShip *m, UChar *bol, char *bopat[]){
    Fiber *f;
@@ -1781,7 +2065,8 @@ static int listSz(MotherShip *m){
      *      You shouldn't fork anymore, match is done.
      *   2: Dead lock. Can't continue, stop what you are doing and bail.
      * TODO:
-     *   -If dead lock: malloc() another block of Fibers.
+     *   -If dead lock: malloc() another block of Fibers. The compiler could
+     *     tell me how many would be needed (at any one time).
      * GCC: fork is built-in function, can't use that name
      */
 static int forkk(
@@ -1799,7 +2084,7 @@ static int forkk(
     * pullThread() also checks but hopefully this reduces thrashing
     */
    if(gid && gid==m->winningGID)
-      { DEBUGCODE( printf("%d has already won\n",gid); ) return 1; }
+      { DEBUGCODE( printf("GID %d has already won\n",gid); ) return 1; }
 
    /* If dfa & lp is the same as an existing Fiber, this is a duplicate and
     *   can be ignored.
@@ -1816,7 +2101,7 @@ static int forkk(
       if(dfa == f->dfa && lp == f->lp)
 	 //!!! would really like to only compare tags in play
 	 if(!m->hasRefs || !memcmp(bopat,f->bopat,sizeof(char *)*RE_MAX_TAG)){
-	    DEBUGCODE( printf("fork(): DUP  %ld:%s\n",DFA_ADDR(m,dfa),lp); )
+	    DEBUGCODE( printf("forkk(): DUP  %ld:%s\n",DFA_ADDR(m,dfa),lp); )
 	    stator->dup = 1;	// doNodeGlider() needs to know
 	    return 0;
 	 }
@@ -1825,13 +2110,13 @@ static int forkk(
       // GC: run fibers hoping some die
       // This can be recursive: pullThread() causes fork(), repeat
       //   and dead lock if all Fibers are trying to fork()
-      DEBUGCODE( printf("fork(): GC\n"); )
+      DEBUGCODE( printf("forkk(): GC\n"); )
       if(1!=pullThread(m))	// run until can't run no more
 	 // a match was found, don't need no steeking resources
 	 // or DFA corruption, in either case, stop what you are doing
 	 return 1;	// but check m->errorCode
       if(m->sz == MAX_FIBERS){
-	 _regExpFail(m,"regExpMatch(): fork(): Dead lock",RE_ERROR_DEAD_LOCK,stator);
+	 _regExpFail(m,"regExpMatch(): forkk(): Dead lock",RE_ERROR_DEAD_LOCK,stator);
 	 return 2;
       }
    }
@@ -1895,6 +2180,11 @@ static UChar *doNode(MotherShip *, Byte *, UChar *, char *bopat[], Stator *, int
      *   like behavior). Minimal recursion, *no* back tracking.
      *   DFA execution is forward only, a thread does not run an op more
      *   than once (athough other threads can run that same op). Semantics.
+     *   If I understand Russ's VM paper correctly, the fibers array is 
+     *   ThreadList (clist & nlist) in the Thompson & Pike VMs. Fixed
+     *   because I don't want to allocate. The/A big difference is I don't
+     *   run in lock step, which leads to more fibers used (ie clo count !=
+     *   max fibers).
      * Each fiber represents a fork in the search path (OR, ?, *, +, {}).
      * I *think* this the point where the DFA moves to NFA and I'm doing the
      *   equivalent a lazy conversion of the NFA to DFA.
@@ -2066,6 +2356,12 @@ static int pullThread(MotherShip *m){
      *   (aa|a)* match "a"*7 dead locks whereas nodeGlider can do 1000+ fast
      *     (by not doing anthing as it is mostly dups, looks linear).
      *   THIS ONLY works if longest match wins as it is eagar.
+     * 
+     * Ponder: PACMAN here would mean that all clause prefixes are disjoint
+     * and the union is disjoint from the next suffix (eg (a|b+)c), 
+     * child closures are PACMAN and non-zero (+, {1,}). If that is the
+     * case, which ever clause advances is the winning clause.
+     * No forking necessary.
      */
 
 #define OR_LONGEST_WINS	1	// or first: 0?
@@ -2076,8 +2372,8 @@ static UChar *doNode(	// dfa[-1] == NODE
 {
    int      nodeTag;
    int      moreOR = 1; // a Node has at least one OR and I haven't seen it yet
-   Byte    *nextOR = dfaScanForward(dfa,AORB,1);	// (?:|b), dfa --> |
-   Byte    *edon   = dfaScanForward(dfa,EDON,1);
+   Byte    *nextOR = dfaScanForward(dfa,AORB,1,0);	// (?:|b), dfa --> |
+   Byte    *edon   = dfaScanForward(dfa,EDON,1,0);
    unsigned gid    = 0; //, isor = 0;
    Stator   stator;
    #if PAYLOAD
@@ -2117,7 +2413,7 @@ static UChar *doNode(	// dfa[-1] == NODE
       nodeTag = dfa[1];	// clean up if node fails, 0 if "(?:"
       moreOR  = dfa[2];	// hops, >0 means more OR
       dfa    += 3;	// op after OR
-      if(moreOR) nextOR = dfaScanForward(dfa,AORB,1); // (?:a||c) dfa --> | #2
+      if(moreOR) nextOR = dfaScanForward(dfa,AORB,1,0); // (?:a||c) dfa --> | #2
       if(nodeTag != 0) bopat[nodeTag] = (char *)lp;  // not if (?: or 0
    }// while
    return _regExpFail(m,"regExpMatch(): doNode(): bad dfa",RE_ERROR_BAD_DFA,_stator);
@@ -2132,18 +2428,24 @@ static UChar *doNode(	// dfa[-1] == NODE
      *   Need all possible matches
      * Since this is alternation, match order doesn't matter or is left to
      *   right, we can fork as we go.
+     * Does *not* handle sub-alternation (nested OR): (a|(b|c)|d)* forks.
+     *   It would if nested OP was PACMAN (see doNode()),
+     *   I don't think payload would work here.
+     * Returns:
+     *   >=0 : Count of matches
+     *    -1 : error
      */
 //typedef struct{ UChar *bopat, *eopat; Byte *dfa; } NG;
 static int doNodeGlider(
    MotherShip *m, Byte *dfa, UChar *lp, char *bopat[], UChar **eps, int N,
    Byte *efa, unsigned gid)
 {
-   int      nodeTag, n = 0;
-   int      moreOR = 1;
-   Byte    *nextOR = dfaScanForward(dfa,AORB,1);
-   char   **eopat  = &bopat[RE_MAX_TAG];
-   UChar   *ep;
-   Stator   stator;
+   int     nodeTag, n = 0;
+   int     moreOR = 1;
+   Byte   *nextOR = dfaScanForward(dfa,AORB,1,0);
+   char  **eopat  = &bopat[RE_MAX_TAG];
+   UChar  *ep;
+   Stator  stator;
 
    DEBUGCODE( printf("doNodeGlider: Start at %ld  more OR? %d\n",DFA_ADDR(m,dfa),nextOR!=0); )
    while(1){	// fork() each OR
@@ -2154,12 +2456,12 @@ static int doNodeGlider(
 	    _regExpFail(m,"regExpMatch(): doNodeGlider(): cache full",RE_ERROR_EOM,&stator);
 	    return 0;
 	 }
-	 //if(ep!=lp){	// (a||c)*  --> dup but why fork?
+	 //if(ep!=lp){	// (a||c)*  --> dup but why fork?  Doesn't seem to happen
 #if 1
 	 if(forkk(m,efa,ep,bopat,&stator,gid,0,0)) return 0;
 	 if(!stator.dup) eps[n++] = ep;
 
-#else	// for the other nodeGlider
+#else	// for the other nodeGlider  !!! dead code
 	 check for dups (of ep), need cache start and size
          ng->bopat = lp;
          ng->eopat = ep;
@@ -2179,13 +2481,12 @@ static int doNodeGlider(
       nodeTag = dfa[1];	// clean up if node fails, 0 if "(?:"
       moreOR  = dfa[2];	// hops, >0 means more OR
       dfa    += 3;	// op after OR
-      nextOR  = moreOR ? dfaScanForward(dfa,AORB,1) : 0;
+      nextOR  = moreOR ? dfaScanForward(dfa,AORB,1,0) : 0;
       if(nodeTag != 0) bopat[nodeTag] = (char *)lp;  // not if (?:
    }// while
    _regExpFail(m,"regExpMatch(): doNodeGlider(): bad dfa",RE_ERROR_BAD_DFA,&stator);
    return -1;
 }
-
 
     /* A slighty different op_fork() (look at that first), where both lp and
      * # of characters between fork points are unknown (at compile time).
@@ -2197,7 +2498,7 @@ static int doNodeGlider(
      *     1 char width: a* : op_CLO(): Calculation
      *     Fixed width matches: (a.b)*: gliderGun(): Calculation (this code)
      *     Variable width matches: (a*b)*: widerGlider(): Cache
-     *     NOTE: fixed/variable width means pmatch(dfa) does not fork.
+     *     NOTE: fixed/variable width means pmatch(dfa) does *not* fork.
      *       Examples: (abc), (a.c), (a*c)<--pacman   Not: (.*a)
      *   The "normal" CLO & op_fork() assume the matches are one char, here
      *     the chunk size is unknown (at compile time anyway).
@@ -2214,13 +2515,35 @@ static int doNodeGlider(
      *     which means neither CLOs fork so gliderGun can do the work. Note
      *     that pmatch might both succeed and NOT advance.
      * 
+     * I keep reading about back references can cause exponential time:
+     * O(n^(2k)) where
+     *   n is the length of the input string.
+     *   k is the number of backreferences in the regex
+     * with an example of (a*)(b*)\1\2 matching abababab --> [0,4] "a", "b"
+     * n^4 time. I think that is the example, DDG AI had it mangled.
+     * Matching aaaaaa is a much worse case and starts to really flail over
+     * "a"*500,000, thrashing fibers. Backreferences are the problem as
+     * (a*)(b*).. is fast (0.001sec vs 0.8sec). Interestingly, "\1." is the
+     * same time as "\1\2". Still, I'm seeing quadratic, not higher
+     * polynomial time increases. 
+     * Since this is a match fail, match time == search time.
+     * Backreferences, for me, are constants, same as STR so I don't how
+     * they can be a problem. What am I missing? I know it is NP-complete
+     * but don't know of an example. I *may* be dodging *a bullet because I
+     * only keep one level of tags and, if needed, re-calculate them. Or,
+     * more likely, I don't compile the "bad/hard" cases (such as recursive
+     * backrefs or (a*)*a).
+     * 
+     * Uggh: (a*){2,}[bc] match aaab    PCRE --> [0,4] ""
+     * I PACMAN "a" so this fails. Do I care? (a*)*[bc] & (a*)+[bc] work
+     * 
      * Uggh, storage and order conflicts. Need to queue Fibers greedy first
      * but can only get there eagar first, which sets tags in reverse order.
-     * We know the compiler does not allow forks or variable length matches
-     * in the tag we are closing over which means the number of characters
-     * matched is constant. So pmatch() to calculate the width (of each
-     * match) and to find the end of the closure. Then back up and fork each
-     * closure, capturing tags as needed.
+     * We know the compiler (for gliderGun) does not allow forks or variable
+     * length/width matches in the tag we are closing over which means the
+     * number of characters matched is constant. So pmatch() to calculate
+     * the width (of each match) and to find the end of the closure. Then
+     * back up and fork each closure, capturing tags as needed.
      * 
      * (a.c)*d --> CLO BOT 0 10 BOT 1 CHR a ANY CHR c EOT 1 END CHR d
      *			    dfa ^                           efa ^
@@ -2369,32 +2692,52 @@ static int widerGliderN(MotherShip *ms, Byte *dfa, UChar **_lp,
    }
    return 0;
 }
-#if 1
-    /* gliderGun for Node (alternation) closures
+
+    /* gliderGun/widerGlider for Node (alternation) closures.
      * Gotta keep state: a minimum of two rows of the search tree: (a|b)* has
      *   [up to] two children, each of those two can have two ...
      * Since this is alternation, match priorty is longest or left most so
      *   we can fork as we go, greatly reducing the amount of state we need
      *   save. This does conflict with PCRE.
-??????left most-> conflict with * == greedy?
+??????left most-> conflicts with * == greedy?
      * We need to track where an alternation search ends because that is
      *   where the child search starts.
      * 
-     * Does *NOT*, can *NOT* handle PACMAN.
+     * Does not handle nested NODEs: (a|(b+|c))+
      * 
-     * Russ's nasty case revisited: (aa|a)* match "a"*N  == (a?)* (which I don't do)
-     * Solution is the same: don't fork duplicates (which forkk does).
-     * And don't cache them (doNodeGlider()). Caching two rows, after prune,
-     *   forks 2*(N+1) times and cache a max of 6. Lucky for me the Fibers
-     *   die quickely but caching the tree isn't going to work (ie no greedy
-     *   behavior (as done above), gotta be eagar which means longest wins.
+     * Pacman means only the greedest match need proceed, previous matches
+     *   can not result in longer matches. There can only be one: if ANY
+     *   (a|b)+ fiber stops at c, they will all have the same match match:
+     *   the past has no effect on future match. ie no need to fork
+     *   Well, ignornig tags, refs and duplicates on the way to the end.
+     * Given the duplicate elimination and ref checking forkk does, I'm
+     * having a hard time getting motivated to write the code (a proto
+     * works). And tag syncing (would have to add another row so I can
+     * re-gen the correct tags). And I *have* to remove dups (see next
+     * comment) which means digging into MotherShip.
+     * 
+     * Russ's nasty case revisited: (aa|a)* match "a"*N  == (a?)* 
+     *   (--> PACMAN so it is fast. Dup elimination makes it fast even if
+     *   not PACMAN (!PACMAN is a bit faster). I don't handle (a?)*a, it
+     *   forks).
+     * Solution is the same: don't fork duplicates (which forkk handles).
+     * And don't cache them all (doNodeGlider()). Caching two rows, after
+     *   prune, forks 2*(N+1) times and cache a max of 6. Lucky for me the
+     *   Fibers die quickely but caching the tree isn't going to work (ie no
+     *   greedy behavior (as done above), gotta be eagar which means longest
+     *   wins.
+     * 
+     * n:=11; re:=n.pump(List,'+(1),'*.fp("a")).concat("|") : "(%s)*".fmt(_);
+     * var r=RegExp(re)		--> (a|aa|aaa|aaaa|aaaaa)*
+     * r.search("a")*100) --> doNodeGlider(): cache full  (cache[200/500])
+     * n==17 --> (a)*: a too long
      */
 static int nodeGlider(MotherShip *ms, Byte *dfa, UChar **_lp, 
-     char *_bopat[], Stator *stator,  Byte *efa, int clop)
+     char *_bopat[], Stator *stator,  Byte *efa, int clop, int pacman)
 {
    char  *bopat[2*RE_MAX_TAG];
    UChar *lp = *_lp, *are = lp;
-   UChar *cache[200];		// think this is bounded by 2*MAX_FIBERS
+   UChar *cache[500];
    int    n = 0, csz = sizeof(cache)/sizeof(UChar *);
    unsigned gid = 0;	// closure group id
 
@@ -2411,7 +2754,8 @@ static int nodeGlider(MotherShip *ms, Byte *dfa, UChar **_lp,
 #endif
 
    // build first level of searchtree
-   if(-1 == (n = doNodeGlider(ms,dfa,lp,bopat,cache,csz, efa,gid)) ) return 0;
+   if(-1 == (n = doNodeGlider(ms,dfa,lp,bopat,cache,csz, efa,gid)) )
+      return 0;
    if(clop && !n) return 0;	// first round is required
 
    while(n){   // Build rolling window of two adjunct rows of the search tree
@@ -2423,23 +2767,24 @@ static int nodeGlider(MotherShip *ms, Byte *dfa, UChar **_lp,
 #if OR_LONGEST_WINS
 	    gid = 0;
 #else
-	    gid = ++ms->gid;
+	    gid = ++ms->gid;	// !!!???each level is a new group
 #endif
 	    // build next level of search trees <<-- tree branches at each OR
 	    s = doNodeGlider(ms,dfa,*cpp,bopat,&cache[n],csz - n, efa,gid);
-	    if(s == -1) return 0;	// no children, empty level
+	    if(s == -1) return 0; // error, I assume won't happen after above call
 	    n += s;	// start of sibling level
 	 }
       }
-      // clean previous level
+      // remove previous level
       memmove(cache,&cache[lsz],(n - lsz)*sizeof(UChar *));  // is move zero fast?
       n -= lsz;
    }
+
    if(!clop) forkk(ms,efa,are,_bopat,stator,0,0,0);  // fork the no match case
    return 0;
 }
-#else
-// does not prune, not usable, does greedy correctly
+#if 0
+// not usable: does not prune, does greedy "correctly"
 static int nodeGlider(MotherShip *ms, Byte *dfa, UChar **_lp, 
      char *_bopat[], Stator *stator,  Byte *efa, int clop, int tags)
 {
@@ -2536,11 +2881,6 @@ static int nodeGlider(MotherShip *ms, Byte *dfa, UChar **_lp,
  *       tagged expressions (n = 1 to RE_MAX_TAG).
  */
 
-    // skip values for CLO XXX to skip past the closure
-#define ANYSKIP	 2 		// CLO ANY|DIGIT|.. END ..
-#define CHRSKIP	 3		// CLO CHR chr	    END ..
-#define SETSKIP (2 + BITBLK)	// CLO SET 32bytes  END ..
-
 #ifndef TAIL_CALL	// the big switch or gotos?  This the switch code
  	// If you are looking for comments, read the tail call code
 
@@ -2563,12 +2903,6 @@ static UChar *pmatch(MotherShip *ms,
 	    z = strncmp((char *)dfa, (char *)lp, n - 1);   // strncasecmp(3), _strnicmp(win)
 	    lp += n - 1;
 	 #else
-	    //for(ep = lp, z = n, bp = dfa; z-- && *lp && CEQ(*ep++,*bp++); ) ;
-	    //z++;	// want z==-1
-	      /* Assumption: memcmp() is linear (as indicated by man(3)).
-	       * If STR is longer than what is left in text, won't run off end
-	       * of text because '\0' won't match.  Otherwise: */
-	    //if(pat + n >= endLp) goto fail; // STR longer than remaining text
             z = memcmp(dfa,lp,n);
 	    lp += n;
 	 #endif // ANDTHENULL
@@ -2612,25 +2946,10 @@ static UChar *pmatch(MotherShip *ms,
 	 if((lp != ms->bol && IS_WORD(lp[-1])) && !IS_WORD(*lp)) break;
 	 goto fail;
       case AORB:	 // op_AORB, <tag count><hops to sibling OR>
-	   /* Reached OR == match success == done with match or Node
-	    * OLD:        ^ .. AORB 0 .. AORB 0 ..().. $	     tag == 0
-	    * .. NODE BOT n .. AORB n .. AORB n ..().. EOT n EDON .. tag == n
-	    * .. NODE       .. AORB 0 .. AORB 0 ..()..       EDON .. tag cosmetic
-	    * The hard way (if tagged):
-	    *    Hop over remaining sibling ORs
-	    *    Skip to EOT n (if in node, don't leave node)
-	    *    Continue, tag will be closed at EOT
-	    * The easy way:
-	    *    Close tag n == EOT n
-	    *    Could just return but doNode() would need to
-	    *		forward dfa to EDON, it is easier just to do it here.
-	    *    Skip to matching EDON. Could back up 2 to EOT.
-	    *    Continue.  
-	    */
 	 DEBUGCODE( printf("OR1: %ld: tags(%d) Hops(%d)\n",DFA_ADDR(ms,dfa) - 1,*dfa,dfa[1]); )
 	 if(*dfa)	// 0 is a flag/place holder, tag 0 is set upstairs
 	    eopat[*dfa] = (char *)lp;	// close my tag: EOT n
-	 if(!(dfa = dfaScanForward(dfa + 2,EDON,1)))
+	 if(!(dfa = dfaScanForward(dfa + 2,EDON,1,0)))
 	       return _regExpFail(ms,"regExpMatch: AORB: No EDON.",RE_ERROR_BAD_DFA,stator);
 	 DEBUGCODE( printf("OR2: jumped to %ld\n",DFA_ADDR(ms,dfa)); )
          break;	// --> EDON
@@ -2665,19 +2984,19 @@ static UChar *pmatch(MotherShip *ms,
 	       while(*lp && (e = pmatch(ms,dfa,lp,bopat,eopat,stator))) lp = e;
 	       n = SETSKIP;
 	       break;
-	    case BOT:	// (abc)+ --> CLOP BOT sz BOT n CHR a Chr b Chr c EOT n END
-	       n    =  dfa[1];
-	       f    = dfa[2];
+	    case BOT:
+	       f    = dfa[1];
+	       n    = dfa[2];
 	       dfa += 3;
-	       pacman = (f & 1);
+	       pacman = (f & CLO_PACMAN);
 
 	       if(*dfa==NODE){
-		  if(lp && nodeGlider(ms,dfa,&lp,bopat,stator, dfa + n, z))
+		  if(lp && nodeGlider(ms,dfa,&lp,bopat,stator, dfa + n, z, pacman))
 		     { dfa += n; goto cloNextOp; }
 	       }else{
 		  if(z) lp = pmatch(ms,dfa,lp,bopat,eopat,stator); // a+ == aa*
-		  c  = (f & 2);
-		  f &= 4;
+		  c  = (f & CLO_VWIDTH);
+		  f &= CLO_TAGS;
 		  if(lp && (c ? widerGlider(ms,dfa,&lp,bopat,stator, dfa + n,f)
 			      : gliderGun(  ms,dfa,&lp,bopat,stator, dfa + n,f,pacman) ))
 		    { dfa += n; goto cloNextOp; }
@@ -2722,8 +3041,8 @@ static UChar *pmatch(MotherShip *ms,
 	      }
 	 Z = N;
 	 if(op==BOT){
-	    n     =  dfa[1];
-	    flags = dfa[2];
+	    flags = dfa[1];
+	    n     = dfa[2];
 	    dfa  += 3;
 	    efa   = dfa; // because I increment dfa below
 	    Z     = M;	 // then let gliderGun do the rest
@@ -2762,7 +3081,7 @@ static UChar *pmatch(MotherShip *ms,
 	 }//for
 	 if(i < M) goto fail;	// < min matches
 	 if(i==0 && n==ANYSKIP) // then switch maybe not done, skip size unknown
-	    n = (dfaScanForward(dfa,END,0) - dfa + 1);
+	    n = (dfaScanForward(dfa,END,0,0) - dfa + 1);
 
 	 if(i==M && !*lp){ dfa += n; break; } // {m,n}: only m matches
 
@@ -2776,9 +3095,9 @@ static UChar *pmatch(MotherShip *ms,
 	 if(M==N && !star) break;	// {n} and have matched n
 
 	 if(op==BOT){
-	    int wide = (flags & 2);
-	    c	     = (flags & 4);
-	    pacman   = (flags & 1);
+	    int wide = (flags & CLO_VWIDTH);
+	    c	     = (flags & CLO_TAGS);
+	    pacman   = (flags & CLO_PACMAN);
 	    lp = are;		// in case of PACMAN
 	    if(star) i = wide ? widerGlider( ms,efa,&lp,bopat,stator,dfa,    c)     :
 				gliderGun(   ms,efa,&lp,bopat,stator,dfa,    c,pacman);
@@ -2793,10 +3112,10 @@ static UChar *pmatch(MotherShip *ms,
       }
         break;
       case PACMAN: ms->pacman = 1; break;		// op_PACMAN
-      #if DO_HOLDS
       case HOLDS:	// op_HOLDS: HOLDS hops-to-STR (base 1 in this Node)
-	 for(n = *dfa, bp = dfa + 1; (bp = dfaScanForward(bp,STR,1)) && --n;
-	     bp += (bp[1] + 1 + ANDTHENULL) ){}
+      #if DO_HOLDS
+	 for(n = *dfa, bp = dfa + 1; (bp = dfaScanForward(bp,STR,1,0)) && --n;
+	     bp += (bp[1] + 2) ){}	// gotta single step bp over STR
 	 if(!bp) return _regExpFail(ms,
 			"regExpMatch: HOLDS could not find STR",RE_ERROR_BAD_DFA,stator);
 	 dfa++;
@@ -2807,6 +3126,8 @@ static UChar *pmatch(MotherShip *ms,
 	 #endif
 	    { stator->noHolds = 1; goto fail; }
          break;
+      #else
+         dfa++; break;		// fallback
       #endif // DO_HOLDS
       #if DO_DOTSTAR
       case DOTSTAR:				// op_DOTSTAR
@@ -2829,7 +3150,7 @@ static UChar *pmatch(MotherShip *ms,
 	 goto fail;
 	 break;
       }
-      case DOTSTAB:				// op_DOTSTAR
+      case DOTSTAB:				// op_DOTSTAB
       {
 	 Byte	    c = *dfa++;
 	 char	   *ep;
@@ -2843,6 +3164,15 @@ static UChar *pmatch(MotherShip *ms,
 	 goto fail;
 	 break;
       }
+      #else	// fallbacks
+      case DOTSTAR:				// op_DOTSTAR
+      dotStarFallback:
+	 are = lp;
+	 lp += strlen((char *)lp);	// -->Eol
+	 goto fork;
+      case DOTSTAB:				// op_DOTSTAB
+	 dfa++;
+	 goto dotStarFallback;
       #endif // DO_DOTSTAR
       default: return _regExpFail(ms,"regExpMatch: bad dfa.",RE_ERROR_BAD_DFA,stator);
     }// switch, while
@@ -3018,7 +3348,7 @@ OP_SIG(op_AORB){	// <tag count><hops to sibling OR>
    DEBUGCODE( printf("OR1: %ld: tags(%d) Hops(%d)\n",DFA_ADDR(ms,dfa) - 1,*dfa,dfa[1]); )
    if(*dfa)	// 0 is a flag/place holder, tag 0 is set upstairs
       eopat[*dfa] = (char *)lp;	// close my tag: EOT n
-   if(!(dfa = dfaScanForward(dfa + 2,EDON,1)))
+   if(!(dfa = dfaScanForward(dfa + 2,EDON,1,0)))
       return _regExpFail(ms,"regExpMatch: AORB: No EDON.",RE_ERROR_BAD_DFA,stator);
    DEBUGCODE( printf("OR2: jumped to %ld\n",DFA_ADDR(ms,dfa)); )
    //JMP_NEXT_OP();	// --> EDON, == dfa++; GOTO_OP(op_EDON)
@@ -3033,7 +3363,7 @@ OP_SIG(op_NODE){
 //OP_SIG(op_EDON){ stator->edon = 1; GOTO_OP(op_success); }
 OP_SIG(op_EDON){ JMP_NEXT_OP(); }    // flowed off the end of last OR
 
-    /* Handle ? * +
+    /* Handle * + sometimes ? {}
      * are --> first match, lp --> last match. are==lp == one Fiber
      * We'll queue all matches of the branches and let pullThread() figure
      *   out which (if any) wins.
@@ -3114,26 +3444,26 @@ OP_SIG(op_CLO){ // both CLO:[5] (*: none or more) & CLOP:[6] (+: one or more)
 	 break;
       #endif
       case BOT: 
-         // (ab)+ -->PACMAN CLOP BOT sz==9 flags==0 BOT n CHR a CHR b EOT n END
-	 sz = dfa[1];	// size
-	 f  = dfa[2];	// flags
-	 dfa += 3;
-	 // flags: 1: PACMAN, 2: ONEANDDONE, 4: wide (NODE: forks)
-	 pacman = (f & 1);
+         // (ab)+ -->PACMAN CLOP BOT flags==5 sz==9 BOT n CHR a CHR b EOT n END
+	 // Flags: 1 (PACMAN), 2 (wide), 4 (contains non-cosmetic tags)
+	 f      = dfa[1];	// flags
+	 sz     = dfa[2];	// size
+	 dfa   += 3;
+	 pacman = (f & CLO_PACMAN); // only way to test is to examine DFA or if forks
 
 	 if(*dfa==NODE){
 	 #if PAYLOAD
 	    if(c) doNode( ms,dfa + 1,lp,bopat,stator, (clop ? 1 : 2));
-	    else if(nodeGlider(ms,dfa,   &lp,bopat,stator, dfa + sz, clop))
+	    else if(nodeGlider(ms,dfa,   &lp,bopat,stator, dfa + sz, clop,pacman))
 			{ dfa += sz; JMP_NEXT_OP(); }
 	 #else
-	    if(nodeGlider(ms,dfa,&lp,bopat,stator, dfa + sz, clop))
+	    if(nodeGlider(ms,dfa,&lp,bopat,stator, dfa + sz, clop,pacman))
 	       { dfa += sz; JMP_NEXT_OP(); }
 	 #endif
-	 }else{	// if PACMAN, compiler has set wide to 0
+	 }else{
 	    if(clop) lp = pmatch(OP_ARGS); // a+ == aa*
-	    c  = (f & 2);
-	    f &= 4;
+	    c  = (f & CLO_VWIDTH);	// wide
+	    f &= CLO_TAGS;		// noncosmo tags
 	    if(lp && (c ? widerGlider(ms,dfa,&lp,bopat,stator, dfa + sz,f)
 			: gliderGun(  ms,dfa,&lp,bopat,stator, dfa + sz,f,pacman) ))
 		{ dfa += sz; JMP_NEXT_OP(); }
@@ -3172,7 +3502,11 @@ OP_SIG(op_CLO){ // both CLO:[5] (*: none or more) & CLOP:[6] (+: one or more)
      * Both CLOMN:[8] ({m,n}) & ONE:[7] (? none or one)
      * CLOMN M N <dfa> END
      * ONE <dfa> END --> CLOMN 0 1 <dfa>
-     * CLOMN M N BOT wide sz <exp> END  : (abc){M,N}
+     * CLOMN M N BOT flags sz dfa END  : (abc){M,N}
+     * 
+     * It sure would have been a lot less code to compile *+ as CLOMN ala
+     *   ONE although I use CLO as a fallback and CLOMN doesn't handle (a|b){}
+     *   A quick test shows it works.
      */
 OP_SIG(op_CLOMN){
    UChar *ep, *tp, *are; 	// for M==0
@@ -3188,8 +3522,8 @@ OP_SIG(op_CLOMN){
    Z = N;
    if(op==SET) opaddr = op_SET; else if(op==NSET) opaddr = op_NSET;
    if(op==BOT){
-      sz    = dfa[1];
-      flags = dfa[2];
+      flags = dfa[1];
+      sz    = dfa[2];
       dfa  += 3;
       efa   = dfa;	// because I increment dfa below
       Z     = M;	// then let gliderGunN do the rest [of the matches]
@@ -3224,7 +3558,7 @@ OP_SIG(op_CLOMN){
    }//for
    if(i < M) GOTO_OP(op_fail);	// < min matches
    if(i==0 && sz==ANYSKIP && op!=BOT) // switch maybe not done, skip size unknown
-      sz = (dfaScanForward(dfa,END,0) - dfa + 1);
+      sz = (dfaScanForward(dfa,END,0,0) - dfa + 1);
 
    if(i==M && !*lp){ dfa += sz; JMP_NEXT_OP(); }   //  {m,n}: only m matches
 
@@ -3238,9 +3572,9 @@ OP_SIG(op_CLOMN){
    if(M==N && !star) JMP_NEXT_OP();  // {n} & matched n
 
    if(op==BOT){ // (abc){M,N}, matched M instances, now fork N - M more
-      int wide = (flags & 2);
-      c	      = (flags & 4);
-      pacman   = (flags & 1);
+      int wide = (flags & CLO_VWIDTH);
+      c	       = (flags & CLO_TAGS);
+      pacman   = (flags & CLO_PACMAN);
       lp       = are;		// in case of PACMAN
       if(star) i = wide ? widerGlider( ms,efa,&lp,bopat,stator,dfa,    c):
 			  gliderGun(   ms,efa,&lp,bopat,stator,dfa,    c,pacman);
@@ -3267,8 +3601,8 @@ OP_SIG(op_HOLDS){	// HOLDS hops-to-STR (base 1 in this Node)
    Byte *bp;
    int   n;
 
-   for(n = *dfa, bp = dfa + 1; (bp = dfaScanForward(bp,STR,1)) && --n;
-      bp += (bp[1] + 1 + ANDTHENULL) ){} // gotta single step bp
+   for(n = *dfa, bp = dfa + 1; (bp = dfaScanForward(bp,STR,1,0)) && --n;
+       bp += (bp[1] + 2) ){}	// gotta single step bp over STR
    if(!bp) return _regExpFail(ms,
 		     "regExpMatch: HOLDS could not find STR",RE_ERROR_BAD_DFA,stator);
    dfa++;
@@ -3278,8 +3612,10 @@ OP_SIG(op_HOLDS){	// HOLDS hops-to-STR (base 1 in this Node)
       if(!memmem(lp,strlen((char *)lp), bp + 2, bp[1]))
    #endif
       { stator->noHolds = 1; GOTO_OP(op_fail); }
-#endif // DO_HOLDS
    JMP_NEXT_OP();
+#else		// fallback
+   dfa++; JMP_NEXT_OP();
+#endif // DO_HOLDS
 }
 OP_SIG(op_DOTSTAR){	// .*a --> DOTSTAR CHR a | DOTSTAR STR n text
 #if DO_DOTSTAR
@@ -3292,8 +3628,10 @@ OP_SIG(op_DOTSTAR){	// .*a --> DOTSTAR CHR a | DOTSTAR STR n text
     *   Would DOTSTAR 0 DOTSTAR 1 .. DOTSTAR 9 work? DOTSTAR 10 1234567890
     *   *.(a|b) ??--> DOTSTAR 2 ab
     * Note: .+ --> ..* so .+ gets DOTSTAR for free
-    * ??? Expand this ala PREFIX (\d,set,etc). In post or clo. 
-    * (abc.*)-, .*(foo)
+    * !!!ARG: .*a.*b  match aaaaaaaaaaaaaaaaaaaabcd  --> dead lock
+    *   The problem is DOTSTAR [!terminal] DOTSTAR
+    *   !DOTSTAR dead locks with a lot more a's: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabcd
+    *   A GC before deadlock might fix the problem in this case
     */
    Byte	    c;
    char	   *ep, *str = 0;
@@ -3309,7 +3647,7 @@ OP_SIG(op_DOTSTAR){	// .*a --> DOTSTAR CHR a | DOTSTAR STR n text
       c    = *str;
    }else
 #endif
-   if(*dfa==CHR) c    = dfa[1];
+   if(*dfa==CHR) c    = dfa[1];		// will re-run CHR a  !!! should skip
    else{	 c    = *(str = (char *)&dfa[2]); 
 		 span = dfa[1] - ANDTHENULL; 
 		 n   -= (span  - 1);
@@ -3321,11 +3659,14 @@ OP_SIG(op_DOTSTAR){	// .*a --> DOTSTAR CHR a | DOTSTAR STR n text
    }   
    GOTO_OP(op_fail);   // .*a match "" -->fail
 #else
-   JMP_NEXT_OP();
+   // fallback: do .* the hard way
+   UChar *are = lp;
+   lp += strlen((char *)lp);	// -->Eol
+   ms->are = are;
+   GOTO_OP(op_fork);
 #endif  // DOTSTAR
 }
-
-OP_SIG(op_DOTSTAB){	// same as DOTSTAR but with char
+OP_SIG(op_DOTSTAB){	// same as DOTSTAR but with char as part of op
 #if DO_DOTSTAR
    Byte	    c = *dfa++;
    char	   *ep;
@@ -3338,8 +3679,12 @@ OP_SIG(op_DOTSTAB){	// same as DOTSTAR but with char
    }   
    GOTO_OP(op_fail);   // .*a match "" -->fail
 #else
-   JMP_NEXT_OP();
+   // fallback: do .* the hard way
+   dfa++;	// skip over DOTSTAB b
+   GOTO_OP(op_DOTSTAR);
 #endif  // DOTSTAR
+
+//OP_SIG(op_DOTSTAC){	 DOTSTAX?	// op_DOTSTAC: PREFIX in reverse
 }
 
 //////////////////////
@@ -3366,7 +3711,8 @@ _H_ static OpAddr re_ops[] = {
     * Does not look inside CLO or CLOMN.
     * Returns: *dfa == stopAt or 0
     */
-Byte *dfaScanForward(Byte *dfa,int stopAt, int inThisNode){
+static Byte *dfaScanForward(
+     Byte *dfa,int stopAt, int inThisNode, Byte **_tailCLO){
 #if 0
    int n, lvl = 0;
 
@@ -3389,16 +3735,14 @@ Byte *dfaScanForward(Byte *dfa,int stopAt, int inThisNode){
 	       case ANY:            n = ANYSKIP;    break;
 	       case CHR: case REF:  n = CHRSKIP;    break; // CLO CHR chr END
 	       case SET: case NSET: n = SETSKIP;    break;
-	       case BOT:	    n = dfa[1] + 3; break;
+	       case BOT:	    n = dfa[2] + 3; break;
 	       #if DFA_DEBUG
 	       default: return 0;
 	       #endif
 	    }
 	    dfa += n;	// remember dfa++
 	    break;
-         #if DO_HOLDS
 	 case HOLDS:
-         #endif
 	 case CHR: case BOT: case EOT: case REF:
 	 case DOTSTAB:			dfa++;	       break;
          case AORB:			dfa += 2;      break;
@@ -3420,7 +3764,8 @@ Byte *dfaScanForward(Byte *dfa,int stopAt, int inThisNode){
    static Byte skp2[]  = { // op == CLO/CLOP/ANY/CLOMN: size of CLO op
       ANYSKIP, CHRSKIP,ANYSKIP,SETSKIP,SETSKIP,0,  0,  M42,0,  0,  0,  CHRSKIP,  ANYSKIP,ANYSKIP,ANYSKIP,ANYSKIP,ANYSKIP,ANYSKIP, 0,   0,  0,   0,    0,   0,   0,   0,  0,    0,     0,      0, };
 
-   int n, lvl = 0, op; //, singleStep = inThisNode & 2;
+   int n, lvl = 0, op;
+Byte *tailCLO = 0;
 
    while(*dfa != END){
       if(*dfa == stopAt && (lvl==0 || !inThisNode)) return dfa;
@@ -3428,29 +3773,41 @@ Byte *dfaScanForward(Byte *dfa,int stopAt, int inThisNode){
       DEBUGCODE( if(*dfa > LAST_OP) return 0; )	// range check
 
       n = opskp[op = *dfa++];
-      if(n==M42){
-	 // CLO/CLOP/ONE  dfa  or  CLO       BOT sz flags dfa
-	 // CLOMN m n     dfa  or  CLOMN m n BOT sz flags dfa
+      if(n==M42){	// a closure
+tailCLO = dfa;
+	 // CLO/CLOP/ONE  dfa  or  CLO       BOT flags sz dfa
+	 // CLOMN m n     dfa  or  CLOMN m n BOT flags sz dfa
 	 if(op==CLOMN) dfa += 2;
-	 if( (n = skp2[*dfa]) == M42) dfa += dfa[1] + 3;	// (a*c)*
+	 if( (n = skp2[*dfa]) == M42) dfa += dfa[2] + 3;	// (a*c)*
 	 else			      dfa += n;
 	 continue;
       }
+if(op!=EOT && op!=EDON) tailCLO = 0;
       switch(op){
 	 default:   dfa += n;	   break;
 	 case STR:  dfa += (*dfa + 1); break;
 	 case NODE: lvl++;		   break;
 	 case EDON: 
 	    if(--lvl < 0 && inThisNode) return 0; // DFA fail
-//if(--lvl < 0 && inThisNode && !singleStep) return 0; // DFA fail
 	    break;
       }// switch
-//if(singleStep) return dfa;	// no detectable performance hit
    }// while
 #endif
 
+if(_tailCLO && tailCLO) *_tailCLO = tailCLO - 1;
+
    if(END==stopAt) return dfa;	// op_CLOMN(): dfaScanForward(END)
    return 0;	// not found
+}
+
+    // Returns: 0 (error), size
+int dfaSz(Byte *dfa){
+   Byte *end = dfa + 1;	// flags
+
+   if(*end==PREFIX) end += end[1] + 3;	// dfaScanForward doesn't know PREFIX
+   end = dfaScanForward(end,0,0,0);
+   if(!end) return 0;
+   return end - dfa + 1;
 }
 
 #if 1
@@ -3499,7 +3856,7 @@ int regExpSubs(char *src, char *dst, char *tags[]){
 /* ******************* DFA Pretty Printer  **************************** */
 /* ******************************************************************** */
 
-// I dump DFAs a LOT so a pretty printer is worth the effort
+// I dump DFAs a LOT (in gdb) so a pretty printer is worth the effort
 
 #ifdef _MSC_VER
    #define strcat(dst,src) strcat_s(dst,sizeof(tab),src)
@@ -3539,11 +3896,11 @@ static Byte *_dfaDump(Byte *dfa, Byte *addr0, int indent){
 	       case ANY:		break;
 	       case SET: case NSET:     break;
 	       case BOT:
-		  n = dfa[2];
-		  printf(" : BOT : tag size: %d : flags: %d: ",dfa[1],n);
-		  if(n&1)    printf("PACMAN ");
-		  if(n&2)    printf("wide ");
-		  if(!(n&4)) printf("cosmetic ");
+		  n = dfa[1];	// flags
+		  printf(" : BOT : tag size: %d : flags: %d: ",dfa[2],n);
+		  if(n&CLO_PACMAN) printf("PACMAN ");
+		  if(n&CLO_VWIDTH) printf("VWIDTH ");
+		  printf((n & CLO_TAGS) ? "tags " : "cosmetic ");
 		  dfa += 3;
 		  break;
 	       default:
@@ -3585,7 +3942,7 @@ static Byte *_dfaDump(Byte *dfa, Byte *addr0, int indent){
 	       PRINT("OR: ");
 	       if(n==0xff) printf("Tag(%d). Many hops to sibling OR",dfa[0]);
 	       else        printf("Tag(%d). %d hop(s) to sibling OR",dfa[0],n);
-	       dp = dfaScanForward(dfa + 2, AORB, 1);
+	       dp = dfaScanForward(dfa + 2, AORB, 1,0);
 	       printf(" at %ld\n",dp - addr0 + 1);
 	    }else{ PRINT("OR: "); printf("Tags(%d). Nil\n",dfa[0]); }
 	    dfa += 2;
@@ -3609,6 +3966,7 @@ static Byte *_dfaDump(Byte *dfa, Byte *addr0, int indent){
 	 case DOTSTAR: PRINTLN("DOTSTAR");		     break;
 	 case DOTSTAB: PRINTLNc("DOTSTAB");		     break;
 	 case HOLDS:   PRINTLNn("HOLDS: Top hops to STR: "); break;
+	 case STAKE:   PRINTLN("STAKE");		     break;
 	 case PREFIX:
 	    PRINT("PREFIX: "); printf("%d %s\n",dfa[0],&dfa[1]);
 	    dfa += dfa[0] + 2;
