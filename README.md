@@ -47,7 +47,7 @@ static void doRE(char *re, char *text, int flags){
    int   n,s;
 
    n = sizeof(dfa);
-   if( (ptr = regExpCompile(re,dfa,&n)) ){ printf("%s\n",ptr); return; }
+   if( (ptr = regExpCompile(re,dfa,&n,0)) ){ printf("%s\n",ptr); return; }
    printf("%s --> %d byte DFA\n",re,n);
    if(regExpMatch(dfa,text,tags,flags,0)){
       printf("Match: %s  %s",re,text);
@@ -66,8 +66,7 @@ int main(int argc, char* argv[]){
    doRE("(a.c){1,2}","abcadcaec",0x0);  // match \1 == "adc" (22 byte DFA)
    doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"  (24 byte DFA)
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
-        "aaaaaaaaaaaaaaaaaaa",0x0);     // match             (102 byte DFA)
-   doRE("(aa|a)+","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",0); // match
+        "aaaaaaaaaaaaaaaaaaa",0x0);     // match             (106 byte DFA)
    doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1 == "testing"
    return 0;
 }
