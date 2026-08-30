@@ -72,23 +72,45 @@ int main(int argc, char* argv[]){
 }
 ```
 ```
-// The following is also text in zkRE.c
+zkl: var r=RegExp(0''^(aa|a)+')		# 23 byte DFA
+zkl: t:=Time.Clock.runTime; r.search("a"*100_000); Time.Clock.runTime-t
+0.029371
+zkl: r.matched
+L(L(0,100000),"aa")
+
+zkl: var r=RegExp(0''^(?:a+)+b')	// (?:a+)+a won't compile, ambiguous
+zkl: t:=Time.Clock.runTime; r.search("a"*100_000 + "b"); Time.Clock.runTime-t
+0.001033
+zkl: r.matched
+L(L(0,100001))
+
+zkl: var r=RegExp(0''(?:.*) (?:.*) (?:.*) (?:.*) (?:.*)')	# 18 byte DFA
+zkl: var txt = ["a".."e"].apply('*(1_000)).concat(" ")  # "aaa bbb ccc ddd eee"
+zkl: t:=Time.Clock.runTime; r.search(txt); Time.Clock.runTime-t
+1.6e-05		# Linux anyway, it has memrchr(). Otherwise 0.002603 sec
+zkl: r.matched
+L(L(0,5004))
+zkl: t:=Time.Clock.runTime; r.search("a"*5000); Time.Clock.runTime-t
+7.5e-05	  # no match. Actually searching --> 0.002971 sec: quadratic time
+
+//////////
+
 zkl: var d=File("VM/zkRE.c").read()   // has (65O) 253-0001. in last line
 Data(135,326)
 
-zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')
+zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')	# 61 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 0.003635
 zkl: r.matched
 L(L(135190,14),"(65O) ","253-OOO1")    // 65"O" is zero, don't match here
 
-zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')
+zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')	# 69 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-0.016997  // short circuits by noting that ABC..XYZ is not contained in text
-      // ie strstr() and fail 2,786 times, up to this comment @ character 2,786
+0.016997 // short circuits by noting that ABC...XYZ is not contained in text
+     // ie strstr() and fail 2,786 times, up to this comment @ character 2,786
 
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZaaa$')  // aaa is AAA
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-2e-05   // strstr(ABC...XYZAAA) ONCE and fail
-  // Meta fail: this comment is in search text, aaa/AAA to avoid false match
+2e-05 // strstr(ABCDE...XYZAAA) ONCE and fail
+ // Meta fail: this comment is in search text, aaa/AAA to avoid false match
 ```
