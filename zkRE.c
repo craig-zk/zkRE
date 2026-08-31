@@ -20,7 +20,7 @@ A non-recursive back tracking regular expression engine.
 Two C files: zkRE.[ch], no memory allocation, thread safe, public domain
 
 Limitations:
- - NO support for non-ASCII text
+ - NO support for non-ASCII (8 bit) text
  - Some group closures not supported, eg (a+)+a, (.+a)+b, (a+|(b|c))+
    To close a group, the group must have an "unambiguous" stopping point and
    no nested alternations.
@@ -78,7 +78,7 @@ int main(int argc, char* argv[]){
    doRE("(a.c){1,2}","abcadcaec",0x0);  // match \1 == "adc" (22 byte DFA)
    doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"  (24 byte DFA)
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
-        "aaaaaaaaaaaaaaaaaaa",0x0);     // match             (102 byte DFA)
+        "aaaaaaaaaaaaaaaaaaa",0x0);     // match             (106 byte DFA)
    doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1 == "testing"
    return 0;
 }
@@ -105,7 +105,7 @@ zkl: t:=Time.Clock.runTime; r.search(txt); Time.Clock.runTime-t
 zkl: r.matched
 L(L(0,5004))
 zkl: t:=Time.Clock.runTime; r.search("a"*5000); Time.Clock.runTime-t
-7.5e-05	  # no match, actually searching --> 0.002971 sec: quadratic time
+7.5e-05	  # no match. Actually searching --> 0.002971 sec: quadratic time
 
 //////////
 
@@ -593,6 +593,9 @@ static Byte  *chr2str(
 
 #define COSMO_TAGS	(RE_MAX_TAG*5)	// (?:a): not a run time resource
 
+   // DFA flags
+#define DFAF_HAS_REFS	2
+
     /* Compile RE to internal format & store in dfa[]
      * Input:
      *   pat:   Pointer to regular expression string to compile.
@@ -628,7 +631,6 @@ char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz, ReErrorInfo *epac){
    if(*dfaSz < (20 + RE_SLOP))
       _BADPAT(dfa,"regExpCompile: dfa array too small to hold anything meaningful");
    DEBUGCODE( memset(dfa,0,*dfaSz); )	// makes my life easier
-memset(dfa,42,*dfaSz);
 
    STORE(0);			// DFA flags
    *mp = END;			// "initialize"
@@ -1260,7 +1262,7 @@ static char *compile(UChar *p, CompileState *cscape, int justLooking){
 		  if(!tagLog[n]) // !!!would be nice to know if tag is open
 		     BADPAT(dfa,"regExpCompile: Reference not in scope");
 		  STORE(REF); STORE(n);
-		  *dfa |= 2;	// DFA flag: has REFs
+		  *dfa |= DFAF_HAS_REFS;	// DFA flag: has REFs
 		  break;
 	       case 's': STORE(SPACE);	 break;
 	       case 'S': STORE(N_SPACE); break;
@@ -1878,7 +1880,7 @@ tiptop:		// start over, as in doing a search
 
    initMotherShip(&m,bol,bopat);
    m.notags  = notags;
-   m.hasRefs = dfaFlags & 2;
+   m.hasRefs = dfaFlags & DFAF_HAS_REFS;
    m.epac    = epac;
 
    memset(bopat,0,2*RE_MAX_TAG*sizeof(char *));	// wipe all tags
@@ -2257,17 +2259,17 @@ static int pullThread(MotherShip *m){
 	 if(ep){	// fiber is succeeding
 	    if(stator.theEnd){	// a match was found, our job is done
             #if PAYLOAD
-	    if(f->payloadA){
-	       if(*ep){	// infinite recursion: (aa|a)* match "a"*10, doesn't prune
-		  char *_bopat[2*RE_MAX_TAG];
-		  if(m->sz==MAX_FIBERS) return 1; // infinite recursion
-		  memcpy(_bopat,f->bopat,2*RE_MAX_TAG*sizeof(char *));
-		  doNode(m,f->payloadA,ep,_bopat,&stator,1);  // this is very bad recursion
+	       if(f->payloadA){
+		  if(*ep){	// infinite recursion: (aa|a)* match "a"*10, doesn't prune
+		     char *_bopat[2*RE_MAX_TAG];
+		     if(m->sz==MAX_FIBERS) return 1; // infinite recursion
+		     memcpy(_bopat,f->bopat,2*RE_MAX_TAG*sizeof(char *));
+		     doNode(m,f->payloadA,ep,_bopat,&stator,1);  // this is very bad recursion
+		  }
+		  f->dfa = f->payloadB; f->payloadA = f->payloadB = 0;
+		  f->lp  = ep;
+		  goto nextf; 
 	       }
-	       f->dfa = f->payloadB; f->payloadA = f->payloadB = 0;
-	       f->lp  = ep;
-	       goto nextf; 
-	    }
 	    #endif
 	       if(f->gid) m->winningGID = f->gid;
 	       if(m->notags){	// don't care where the match is, only if match
