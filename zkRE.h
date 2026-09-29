@@ -18,9 +18,15 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 #define RE_MAX_TAG	20	// max number of tags: 10 is minimum: "\9"
 			// don't just jack this up, big array in zkRE.c
 
+	// regExpCompile flags:
+ // back references (\1) can cause MAJOR slowness: (123).*a.*b.*c\1
+ // this flag disables them
+#define RE_NO_REFS	 1 
+
 	// regExpMatch flags:
-#define RE_SEARCH	 2	// move as needed to match
-#define RE_MID		 1	// text points to the middle of bigger text
+#define RE_SEARCH	 2  // move as needed to match
+#define RE_1ST_MATCH	 4  // first match wins, speed
+#define RE_MID		 1  // text points to the middle of bigger text
 			// ^ has no match in this text
 			// If RE_MID, text[-1] MUST be at valid!
 
@@ -32,7 +38,7 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 	// Info on *why* regExpMatch()/regExpCompile() failed. Optional.
 typedef struct{ int errorCode, n; char *errorMsg, txt[100]; }ReErrorInfo;
 
-char *regExpCompile(char *pattern, Byte dfa[], int *dfaSz, ReErrorInfo *);
+char *regExpCompile(char *pattern, int flags, Byte dfa[], int *dfaSz, ReErrorInfo *);
 int   regExpMatch(Byte *dfa, char *textToSearch, char *tags[],
                 unsigned int flags, ReErrorInfo *);
 int   regExpSubs(char *src, char *dst, char *tags[]);
@@ -45,7 +51,8 @@ int   dfaSz(Byte *dfa);
  *      char **bopat = tags, **eopat = &tags[RE_MAX_TAG];
  *   bopat[n]-->start of \n match, eopat[n]-->end of \n match
  *   if bopat[n]==0, then bopat[>n] *should*==better be ignored.
- *   If tags==0, they are ignored and the search might be faster
+ *   If tags==0, they are ignored and the search might be faster as it is
+ *     first match wins (vs longest wins)
  */
 
 #endif // __ZKRE_H
