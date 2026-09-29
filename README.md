@@ -11,6 +11,8 @@ Two __C files__: zkRE.[ch], no memory allocation, thread safe, public domain
 
 __Limitations__:
 - NO support for non-ASCII (8 bit) text
+- Case insensitive search not built in. There is a hook so an app can
+   add a macro and table to implement (no code changes here).
 - Some group closures not supported, eg (a+)+a, (.+a)+b, (a+|(b|c))+</br>
    To close a group, the group must have an "unambiguous" stopping point and
    no nested alternations.
@@ -47,7 +49,7 @@ static void doRE(char *re, char *text, int flags){
    int   n,s;
 
    n = sizeof(dfa);
-   if( (ptr = regExpCompile(re,dfa,&n,0)) ){ printf("%s\n",ptr); return; }
+   if( (ptr = regExpCompile(re,0x00,dfa,&n,0)) ){ printf("%s\n",ptr); return; }
    printf("%s --> %d byte DFA\n",re,n);
    if(regExpMatch(dfa,text,tags,flags,0)){
       printf("Match: %s  %s",re,text);
@@ -84,14 +86,14 @@ zkl: t:=Time.Clock.runTime; r.search("a"*100_000 + "b"); Time.Clock.runTime-t
 zkl: r.matched
 L(L(0,100001))
 
-zkl: var r=RegExp(0''(?:.*) (?:.*) (?:.*) (?:.*) (?:.*)')	# 18 byte DFA
+zkl: var r=RegExp(0''(?:.*) (?:.*) (?:.*) (?:.*) (?:.*)')	# 22 byte DFA
 zkl: var txt = ["a".."e"].apply('*(1_000)).concat(" ")  # "aaa bbb ccc ddd eee"
 zkl: t:=Time.Clock.runTime; r.search(txt); Time.Clock.runTime-t
-1.6e-05		# Linux anyway, it has memrchr(). Otherwise 0.002603 sec
+1.6e-05		# Linux anyway, it has memrchr(). Otherwise 0.000643 sec
 zkl: r.matched
 L(L(0,5004))
 zkl: t:=Time.Clock.runTime; r.search("a"*5000); Time.Clock.runTime-t
-7.5e-05	  # no match. Actually searching --> 0.002971 sec: quadratic time
+7.5e-05	  # no match. Actually searching: same
 
 //////////
 
@@ -103,6 +105,12 @@ zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 0.003635
 zkl: r.matched
 L(L(135190,14),"(65O) ","253-OOO1")    // 65"O" is zero, don't match here
+
+zkl: var r=RegExp(0''.*(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')	# 48 bytes
+zkl: t:=Time.Clock.runTime; r.search(d); Time.Clock.runTime-t
+0.030823
+zkl: r.matched
+L(L(0,135204),"(65O) ","253-OOO1")
 
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')	# 69 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
