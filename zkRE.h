@@ -19,14 +19,15 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 			// don't just jack this up, big array in zkRE.c
 
 	// regExpCompile flags:
- // back references (\1) can cause MAJOR slowness: (123).*a.*b.*c\1
- // this flag disables them
-#define RE_NO_REFS	 1 
+  // back references (\1) can cause *EXTREME* slowness: (123).*a.*b.*c\1
+  // this flag disables them
+#define RE_NO_REFS	        1  // \1 is invalid
+#define RE_ALL_TAGS_COSMETIC 0x80  // () == (?:), compile and run time flag
 
 	// regExpMatch flags:
-#define RE_SEARCH	 2  // move as needed to match
-#define RE_1ST_MATCH	 4  // first match wins, speed
-#define RE_MID		 1  // text points to the middle of bigger text
+#define RE_SEARCH	2  // move as needed to match
+#define RE_1ST_MATCH	4  // first match wins, speed
+#define RE_MID		1  // text points to the middle of bigger text
 			// ^ has no match in this text
 			// If RE_MID, text[-1] MUST be at valid!
 
@@ -34,6 +35,7 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 #define RE_ERROR_BAD_DFA	 1	// DFA null or bad/corrupt (eg open ref)
 #define RE_ERROR_DEAD_LOCK	 2	// Not enough threads
 #define RE_ERROR_EOM		 3	// Not enough memory
+#define RE_ERROR_ASSERT		 4	// Assertation failed
 	
 	// Info on *why* regExpMatch()/regExpCompile() failed. Optional.
 typedef struct{ int errorCode, n; char *errorMsg, txt[100]; }ReErrorInfo;
