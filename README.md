@@ -11,14 +11,11 @@ Two __C files__: zkRE.[ch], no memory allocation, thread safe, public domain
 
 __Limitations__:
 - NO support for non-ASCII (8 bit) text
-- Case insensitive search not built in. There is a hook so an app can
-   add a macro and table to implement (no code changes here).
+- Case insensitive search not implemented.
 - Some group closures not supported, eg (a+)+a, (.+a)+b, (a+|(b|c))+</br>
    To close a group, the group must have an "unambiguous" stopping point and
    no nested alternations.
 - Group values can differ from recursive engines (eg PCRE) or POSIX RE
-    * Results can differ: eg "(a|ab)(bc|c)" match "abcabc" 
-      --> \1=="a", \2=="bc" not \1=="ab", \2=="c"
     * Count and index can differ
       eg "a(b)|c(d)|a(e)f" match"aef" --> \1=="e", not \1==\2=="", \3=="e"
 - Alternation is longest match wins:
@@ -29,7 +26,7 @@ match as a breadth first search, the number of nodes/level is limited:
 compiler tweaks and the VM prunes to control growth, not always
 successfully.
 
-__Tests__: 1,100+ hand written tests, 221 are Henry Spencer's regular
+__Tests__: 1,200+ hand written tests, 221 are Henry Spencer's regular
 expression tests (10 of which were modified).
 
 
@@ -67,8 +64,8 @@ int main(int argc, char* argv[]){
    doRE("(dog|cat)\\1","catcat",0x0);   // match             (30 byte DFA)
    doRE("(a.c){1,2}","abcadcaec",0x0);  // match \1 == "adc" (22 byte DFA)
    doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"  (24 byte DFA)
-   doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaaa",
-        "aaaaaaaaaaaaaaaaaaa",0x0);     // match             (106 byte DFA)
+   doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa",
+        "aaaaaaaaaaaaaaa",0x0);         // match             (106 byte DFA)
    doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1 == "testing"
    return 0;
 }
