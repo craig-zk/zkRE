@@ -73,24 +73,25 @@ int main(int argc, char* argv[]){
 ```
 zkl: var r=RegExp(0''^(aa|a)+')		# 23 byte DFA
 zkl: t:=Time.Clock.runTime; r.search("a"*100_000); Time.Clock.runTime-t
-0.029371
+0.01142
 zkl: r.matched
 L(L(0,100000),"aa")
 
 zkl: var r=RegExp(0''^(?:a+)+b')	// (?:a+)+a won't compile, ambiguous
 zkl: t:=Time.Clock.runTime; r.search("a"*100_000 + "b"); Time.Clock.runTime-t
-0.001033
+0.000759
 zkl: r.matched
 L(L(0,100001))
 
-zkl: var r=RegExp(0''(?:.*) (?:.*) (?:.*) (?:.*) (?:.*)')	# 22 byte DFA
-zkl: var txt = ["a".."e"].apply('*(1_000)).concat(" ")  # "aaa bbb ccc ddd eee"
+zkl: var r=RegExp(0''(.*) (.*) (.*) (.*) (.*)')    	# 42 byte DFA
+zkl: var txt = ["a".."e"].apply('*(10_000)).concat(" ")  # "aaa bbb ccc ddd eee"
 zkl: t:=Time.Clock.runTime; r.search(txt); Time.Clock.runTime-t
-1.6e-05		# Linux anyway, it has memrchr(). Otherwise 0.000643 sec
-zkl: r.matched
-L(L(0,5004))
-zkl: t:=Time.Clock.runTime; r.search("a"*5000); Time.Clock.runTime-t
-7.5e-05	  # no match. Actually searching: same
+4e-05
+zkl: r.matchedNs
+L(L(0,50004),L(0,10000),L(10001,10000),L(20002,10000),L(30003,10000),L(40004,10000))
+
+zkl: t:=Time.Clock.runTime; r.search("a"*50_000); Time.Clock.runTime-t
+0.000283	  # no match. Actually searching: same
 
 //////////
 
