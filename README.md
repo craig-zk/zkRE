@@ -96,27 +96,24 @@ zkl: t:=Time.Clock.runTime; r.search("a"*50_000); Time.Clock.runTime-t
 //////////
 
 zkl: var d=File("VM/zkRE.c").read()   // has (65O) 253-0001. in last line
-Data(135,326)
+Data(183,177)
 
 zkl: var r=RegExp(0''(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')	# 61 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-0.003635
+0.00113
 zkl: r.matched
-L(L(135190,14),"(65O) ","253-OOO1")    // 65"O" is zero, don't match here
+L(L(182995,14),"(65O) ","253-OOO1")    // 65"O" is zero, don't match here
+#GNU grep -P  --> 0.006s
 
 zkl: var r=RegExp(0''.*(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')	# 48 bytes
 zkl: t:=Time.Clock.runTime; r.search(d); Time.Clock.runTime-t
-0.030823
+0.038905
 zkl: r.matched
-L(L(0,135204),"(65O) ","253-OOO1")
+L(L(0,183009),"(65O) ","253-OOO1")
+#GNU grep -P  --> 0.007s
 
 zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')	# 69 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-0.016997 // short circuits by noting that ABC...XYZ is not contained in text
-     // ie strstr() and fail 2,786 times, up to this comment @ character 2,786
-
-zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZaaa$')  // aaa is AAA
-zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
-2e-05 // strstr(ABCDE...XYZAAA) ONCE and fail
- // Meta fail: this comment is in search text, aaa/AAA to avoid false match
+0.00128 // short circuits by noting that ABC...XYZ is not contained in text
+      // ie strstr() and fail 2,786 times, up to this comment @ character 2,786
 ```
