@@ -22,6 +22,7 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
   // back references (\1) can cause *EXTREME* slowness: (123).*a.*b.*c\1
   // this flag disables them
 #define RE_NO_REFS	        1  // \1 is invalid
+#define RE_CASEi	        2  // (?i) RE is case insensitive
 #define RE_ALL_TAGS_COSMETIC 0x80  // () == (?:), compile and run time flag
 
 	// regExpMatch flags:
@@ -33,8 +34,8 @@ typedef uint8_t		Byte;	// or UChar if you don't have <stdint.h>
 
 	// RegExp error codes
 #define RE_ERROR_BAD_DFA	 1	// DFA null or bad/corrupt (eg open ref)
-#define RE_ERROR_DEAD_LOCK	 2	// Not enough threads
-#define RE_ERROR_EOM		 3	// Not enough memory
+#define RE_ERROR_DEAD_LOCK	 2	// Not enough fibers
+#define RE_ERROR_OOM		 3	// Not enough memory
 #define RE_ERROR_ASSERT		 4	// Assertation failed
 	
 	// Info on *why* regExpMatch()/regExpCompile() failed. Optional.
