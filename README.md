@@ -91,9 +91,6 @@ zkl: t:=Time.Clock.runTime; r.search(txt); Time.Clock.runTime-t
 zkl: r.matchedNs
 L(L(0,50004),L(0,10000),L(10001,10000),L(20002,10000),L(30003,10000),L(40004,10000))
 
-zkl: t:=Time.Clock.runTime; r.search("a"*50_000); Time.Clock.runTime-t
-0.000283	  # no match. Actually searching: same
-
 //////////
 
 zkl: var d=File("VM/zkRE.c").read()   // has (65O) 253-0001. in last line
@@ -108,7 +105,7 @@ L(L(182995,14),"(65O) ","253-OOO1")    // 65"O" is zero, don't match here
 
 zkl: var r=RegExp(0''.*(\d{3}-|\(\d{3}\)\s+)(\d{3}-\d{4})')	# 48 bytes
 zkl: t:=Time.Clock.runTime; r.search(d); Time.Clock.runTime-t
-0.038905
+1.9e-05
 zkl: r.matched
 L(L(0,183009),"(65O) ","253-OOO1")
 #GNU grep -P  --> 0.007s
@@ -117,4 +114,5 @@ zkl: r=RegExp(0''[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$')	# 69 bytes
 zkl: t:=Time.Clock.runTime; r.search(d,True); Time.Clock.runTime-t
 0.00128 // short circuits by noting that ABC...XYZ is not contained in text
       // ie strstr() and fail 2,786 times, up to this comment @ character 2,786
+#GNU grep --> 0.005s
 ```
