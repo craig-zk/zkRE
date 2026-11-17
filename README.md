@@ -1,8 +1,9 @@
 # zkRE
 Regular expression engine with ERE syntax for ASCII text.</br>
 
-__Syntax__: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \0 .. \9  (?:)`<br/>
-    &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; d (digit), s (space), w (word), <> (begin/end word),  (?:) non-capturing<br/>
+__Syntax__: `{}[]()^$.|*+?\  \d\D  \s\S  \w\W \<\>  \0 .. \9  (?:) (?:i) (?:-i)`<br/>
+  &nbsp; &nbsp; &nbsp;&nbsp; d (digit), s (space), w (word), <> (begin/end word)<br/>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (?:) non-capturing, (?:i) case insensitive, (?:-i) case sensitive (default)<br/>
 Documented at top of zkRE.c
 
 A non-recursive back tracking regular expression engine.
@@ -11,7 +12,6 @@ Two __C files__: zkRE.[ch], no memory allocation, thread safe, public domain
 
 __Limitations__:
 - NO support for non-ASCII (8 bit) text
-- Case insensitive search not implemented.
 - Some group closures not supported, eg (a+)+a, (.+a)+b, (a+|(b|c))+</br>
    To close a group, the group must have an "unambiguous" stopping point and
    no nested alternations.
@@ -20,6 +20,7 @@ __Limitations__:
       eg "a(b)|c(d)|a(e)f" match"aef" --> \1=="e", not \1==\2=="", \3=="e"
 - Alternation is longest match wins:
     (ab|abc) and (ab|abc)+ match "abc" --> "abc" vs "ab" PCRE
+- Search returns one of three results: found, not found, insufficient resources.
 - The width of the match tree is limited: viewing a
 match as a breadth first search, the number of nodes/level is limited:
 `".*a"` match "1234a67890" is width 11, `".*(a|b)"` doubles the width. The
