@@ -67,7 +67,7 @@ int main(int argc, char* argv[]){
    doRE("(ab*c)+","abbbcacab",0x0);     // match \1 == "ac"  (24 byte DFA)
    doRE("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa",
         "aaaaaaaaaaaaaaa",0x0);         // match             (106 byte DFA)
-   doRE("(\\d+)\xC2\xB0",         // UTF-8 °, note count: \1-->((37,4),"75")
+   doRE("(\\d+)\xC2\xB0",         // UTF-8 °, note count: -->((37,4),"75")
          "At the tone, the temperature will be 75\xC2\xB0""F",RE_SEARCH);
    doRE("(test\\w*)","it was a testing time",RE_SEARCH);  // \1 == "testing"
    return 0;
